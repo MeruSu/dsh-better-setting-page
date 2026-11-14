@@ -8,6 +8,59 @@ Two version numbers exist in this project and they are not the same thing:
 - the stored settings `version` — moves only when the shape of the saved record
   changes. This release ships shape `1`.
 
+## 0.1.1 — 2026-11-14
+
+Layout-only release: the header now reads left-to-right the way a settings page
+is expected to. No stored field changed, so `settings.version` stays `1` and no
+migration is involved.
+
+### Changed
+
+- **Collapse on the left, exit on the right.** The rail toggle moved from beside
+  the shipped *Open config file* button to the top-left corner of the header, and
+  the shipped close button now draws a **return arrow** instead of an ✕. The
+  button itself is untouched — same node, same click handler, same accessible
+  name from the host's `settings.close` slot, same `Esc` and click-outside paths.
+- The toggle reaches the corner by flattening its two wrapper boxes with
+  `display: contents` (`.actions` and the slot outlet), not by `order`: it is a
+  grandchild of the header, so `order` could only reorder it inside `.actions`.
+  One side effect is that the Tab order is now the visual order — toggle, then
+  the shipped buttons, then the close button — without needing `reading-flow`.
+
+### Added
+
+- Three test groups (30 → **33**) covering the header layout: the flattening
+  contract, that the close button is restyled rather than moved or replaced, and
+  that the arrow is drawn as a mask. Mutating any of the three turns them red
+  (verified by reverting each rule in turn).
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `node --check client.js` / `index.js` / `test/settings-page.test.mjs` | `0` / `0` / `0` |
+| `node test/settings-page.test.mjs` | `PASS — 33 groups` |
+| static gate (`261115_bsp_gate.mjs`) | `STATIC VERDICT: clean` |
+
+Real-machine check on the **web** runtime (Harness `0.2.2-rc.1`, profile
+`meru-test`, viewport 900×1323):
+
+| Check | Result |
+|---|---|
+| Toggle sits at the header's left edge | **PASS** — x `66` collapsed (rail is 56px wide, first icon cell ends at 48), x `198` expanded (header starts at 188) |
+| Close button stays at the right edge, arrow glyph | **PASS** — x `846` in both states, `svg` computed `visibility: hidden`, `::after` 14×14 mask |
+| Tab order matches the visual order | **PASS** — `收起/展开分类栏@198 → 打开配置文件@744 → 关闭@846` |
+| All three close paths still work | **PASS** — close button, `Esc`, mask click |
+| Collapsed toggle does not cover the first icon | **PASS** — toggle `66–94`, first nav cell `8–48` |
+
+### Notes
+
+- The arrow is an inline SVG used as a `mask`, so it inherits `currentColor` and
+  therefore the host theme (hover, dark mode) without a second copy of the glyph.
+  A text `U+21A9` was rejected: it would depend on the font carrying the glyph.
+- No `!important`, no `display: none` (the shipped glyph is `visibility: hidden`
+  and absolutely positioned instead of removed), no new DOM node.
+
 ## 0.1.0 — 2026-11-14
 
 First working release. `0.0.1` existed only to reserve the package name and did

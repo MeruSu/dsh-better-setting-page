@@ -8,16 +8,24 @@
  *      off two attributes we own on `<html>`, so the panel can be unmounted and
  *      remounted by the host at any time and the state survives without any
  *      MutationObserver.
- *   2. One button in the `settings.action` slot (the content-column header, left
- *      of the shipped "document" button) that toggles the rail.
+ *   2. One button in the `settings.action` slot that toggles the rail, pinned to
+ *      the top-left corner of the header (see "header layout" below).
  *   3. One `settings.section` page with the two switches and "restore defaults",
  *      because a plugin that can only be undone by clearing localStorage is a
  *      plugin the user cannot turn off.
  *
+ * Header layout: collapse on the left, exit on the right. The shipped close
+ * button stays exactly where the host put it and keeps its own click handler and
+ * accessible name; only its glyph changes to a return arrow. We reach the
+ * top-left corner by flattening the two wrapper boxes with `display: contents`
+ * rather than by `order`, because the toggle lives two levels down inside
+ * `.actions` and `order` cannot move a node out of its flex parent.
+ *
  * Deliberate non-goals: no `settings.header` takeover (that slot is the dialog's
  * `aria-labelledby` target and shadows shipped UI), no `display:none` on the
- * mask (its `onClick` is the click-outside-to-close handler), no `!important`,
- * no hash class names, no host store writes.
+ * mask (its `onClick` is the click-outside-to-close handler), no removing or
+ * re-parenting the shipped close button, no `!important`, no hash class names,
+ * no host store writes.
  *
  * Selector notes that are easy to get wrong (verified against the shipped DOM):
  *   - `[data-slot="…"]` is emitted by the renderer's `SlotOutlet` with
@@ -26,6 +34,11 @@
  *   - It sits inside `.actions` / `.options`, never directly under `.header`.
  *     Matching the header row therefore has to use a descendant combinator:
  *     `> div:has([data-slot="settings.action"])`.
+ *   - A catch-all `button:last-child` on the header would also match our own
+ *     toggle, because with `.actions` flattened every button becomes a direct
+ *     child of the header. The close button is therefore addressed as
+ *     `> button:last-of-type` **and** every rule that touches it is scoped to the
+ *     arrow glyph only.
  *   - `clip` alone does not hide anything: the visually-hidden utility below
  *     needs absolute positioning plus `clip-path`.
  */
@@ -38,7 +51,7 @@ window.__ModuleLoader__.load({
 
     /** Locale namespace and the prefix of every DOM attribute we own. */
     const NS = 'better-setting-page'
-    const VERSION = '0.1.0'
+    const VERSION = '0.1.1'
 
     /** localStorage key. Bumping `SETTINGS_VERSION` requires a migration. */
     const STORE_KEY = 'dsh.better-setting-page.settings'
@@ -177,7 +190,75 @@ html[data-bsp-fullscreen="on"] div[data-shortcut-modal="settings"] [data-slot="s
   }
 }
 
-/* ── 5. Rail toggle button (settings.action) ────────────────────────────── */
+/* ── 5. Header layout: collapse left, exit right ─────────────────────────── */
+/* The header is a flex row with justify-content: space-between and exactly two
+   children: .actions (a flex row holding the slot outlet, which holds the
+   shipped buttons) and the shipped close button. Our toggle is a grandchild of
+   the header — header > .actions > [data-slot] > button — so no order value can
+   move it to the far left; order only reorders it inside .actions.
+
+   Flattening the two wrappers with display: contents promotes the slot's
+   children to real flex items of the header. The slot outlet already uses
+   display: contents, so this only adds the one level that was in the way. The
+   toggle then becomes the header's first flex item and the Tab order follows the
+   visual order for free — no reading-flow needed, which matters because that
+   property would also reshuffle the shipped buttons.
+
+   The wrappers are flattened rather than restyled because .actions carries only
+   margin-left: auto, which we replace explicitly below. */
+div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > div:has(> [data-slot="settings.action"]){
+  display: contents;
+}
+
+/* The action slot outlet in the middle is already display: contents from the
+   renderer. Restated so a future change to that inline style cannot silently
+   break the header layout into a stack. */
+div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > div:has(> [data-slot="settings.action"]) > [data-slot="settings.action"]{
+  display: contents;
+}
+
+/* Being the first flex item is not enough: space-between would still distribute
+   the two items by their own sizes. Pushing everything after the toggle to the
+   right reproduces the shipped layout with the toggle prepended. */
+div[data-shortcut-modal="settings"] .bsp-rail-toggle{
+  margin-right: auto;
+}
+
+/* The return arrow used for the shipped close button, as a mask so it inherits
+   the button's color and therefore the host theme (hover, dark mode) without a
+   second copy of the glyph. Inline SVG because the shipped icon set is a sprite
+   we must not fork; a text glyph would depend on the font carrying U+21A9. The
+   custom property lives on the button itself so no ungated panel rule is needed
+   and ::after inherits it. */
+/* The shipped close button, and only it: last-of-type on the header level. Its
+   glyph becomes a return arrow. The button keeps its box, its accessible name
+   (the host fills it through the settings.close slot) and its click handler —
+   Esc and click-outside remain untouched, and the node is never removed. */
+/* The shipped glyph is taken out of flow and made invisible rather than
+   display:none: the project forbids that property outright, and keeping the node
+   in the tree means the host's icon still exists for anything that looks it up by
+   data-icon. Absolute positioning keeps it from adding 14px next to the arrow. */
+div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > button:last-of-type{
+  --bsp-return-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 3.5 3 7l3.5 3.5'/><path d='M3 7h6.25A3.75 3.75 0 0 1 13 10.75v1.75'/></svg>");
+  position: relative;
+}
+div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > button:last-of-type > svg{
+  position: absolute;
+  visibility: hidden;
+}
+div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > button:last-of-type::after{
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 14px;
+  height: 14px;
+  background-color: currentColor;
+  -webkit-mask: var(--bsp-return-icon) center / contain no-repeat;
+  mask: var(--bsp-return-icon) center / contain no-repeat;
+}
+
+/* ── 6. Rail toggle button (settings.action) ────────────────────────────── */
 [data-slot="settings.action"] > .bsp-rail-toggle{
   box-sizing: border-box;
   display: inline-flex;
@@ -201,7 +282,7 @@ html[data-bsp-fullscreen="on"] div[data-shortcut-modal="settings"] [data-slot="s
   outline-offset: -2px;
 }
 
-/* ── 6. Our own settings page ───────────────────────────────────────────── */
+/* ── 7. Our own settings page ───────────────────────────────────────────── */
 .bsp-page{
   display: flex;
   flex-direction: column;

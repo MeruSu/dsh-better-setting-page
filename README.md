@@ -23,12 +23,17 @@ Restart that profile's window afterwards: the browser caches the old bundle.
 | | |
 |---|---|
 | Full-window page | The dialog fills the window; the panel radius and drop shadow go away. On desktop the title-bar height is kept as padding, and that strip still drags the window. |
-| Collapsible rail | A chevron in the page header collapses the section list to 56px of icons. Section names stay in the accessibility tree, so screen readers and `Tab` still announce them. |
+| Collapsible rail | A chevron at the header's **left edge** collapses the section list to 56px of icons. Section names stay in the accessibility tree, so screen readers and `Tab` still announce them. |
 | Remembered in this browser | Both switches live in this browser profile's `localStorage`, key `dsh.better-setting-page.settings`. |
 | Its own settings page | Under **Settings → Settings page** you get two switches and **Restore defaults**. Without that page, a user who dislikes full screen would have to uninstall the plugin. |
 
 Full screen is **on by default**; the rail is **expanded by default**. Both are
 switchable, and both choices survive a restart.
+
+The header reads the way a settings page is expected to: **collapse on the left,
+exit on the right**. The close button in that corner draws a **return arrow**
+instead of an ✕. It is still the host's own button — same node, same handler,
+same accessible name — so nothing about closing changed, only the glyph.
 
 Closing works exactly as it did before: `Esc`, the close button, and a click on
 the mask. The mask is still there and still clickable — with full screen on it is
@@ -115,13 +120,13 @@ back to defaults instead of throwing.
     client.js            browser half: stylesheet, rail toggle, settings page
     index.js             host half: exists so the bundle resolves, injects nothing
     cordis.patch.yml     bundle patch
-    test/settings-page.test.mjs   30 checks, no dependencies
+    test/settings-page.test.mjs   33 checks, no dependencies
 
 ## Tests
 
     node --check client.js
     node --check index.js
-    node test/settings-page.test.mjs     # → PASS — 30 groups
+    node test/settings-page.test.mjs     # → PASS — 33 groups
 
 The test executes the real `client.js` with a stubbed `window.__ModuleLoader__`
 and asserts on the exported strings and store, including two regression traps:
@@ -136,6 +141,12 @@ and three of four items passed: the panel rect equals the viewport
 `aria-expanded="false"`, and the choice survives a reload while `Esc` and the
 close button still close. The fourth — the desktop 40px title-bar drag strip —
 **was not verified**: see [Limits](#limits).
+
+The header layout was measured again for 0.1.1 at 900×1323: the toggle sits at
+x `66` collapsed and `198` expanded (the rail is 56px, so it never covers the
+first icon), the close button stays at x `846` in both states with its glyph
+hidden and a 14×14 arrow mask on top, and the `Tab` order is
+`toggle → Open config file → close`, i.e. left to right.
 
 ## License
 

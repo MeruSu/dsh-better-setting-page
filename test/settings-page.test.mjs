@@ -206,7 +206,7 @@ function load(options = {}) {
   check('exports apply and inject, and injects only slots + locale', () => {
     equal(typeof mod.apply, 'function', 'apply')
     equal(JSON.stringify(mod.inject), JSON.stringify(['slots', 'locale']), 'inject')
-    equal(mod.VERSION, '0.1.0', 'version')
+    equal(mod.VERSION, '0.1.1', 'version')
   })
   check('locale dictionaries ship zh and en with identical key sets', () => {
     const zh = Object.keys(mod.ZH).sort()
@@ -281,8 +281,17 @@ function load(options = {}) {
     absent(css, 'pointer-events: none', 'no pointer-events:none anywhere')
   })
   check('the header row is matched by descendant, because data-slot sits inside .actions', () => {
-    has(css, '> div:has([data-slot="settings.action"])', 'descendant form for the header row')
-    absent(css, '> div:has(> [data-slot="settings.action"])', 'direct-child form would match .actions, not .header')
+    // The header *padding* rule must reach .header, which is the slot outlet's
+    // grandparent: a direct-child form there would style .actions instead.
+    const paddingRule = /html\[data-bsp-fullscreen="on"\] div\[data-shortcut-modal="settings"\][^{]*\{[^}]*padding-right: 26px[^}]*\}/.exec(css)
+    truthy(paddingRule, 'header padding rule present')
+    has(paddingRule[0], '> div:has([data-slot="settings.action"])', 'descendant form for the header row')
+    absent(paddingRule[0], '> div:has(> [data-slot="settings.action"])', 'direct-child form would match .actions, not .header')
+    // The direct-child form is legal only where .actions itself is the target:
+    // flattening it so the toggle becomes a header flex item.
+    const flatten = /div\[data-shortcut-modal="settings"\] > div:has\(\[data-slot="settings\.action"\]\) > div:has\(> \[data-slot="settings\.action"\]\)\{([^}]*)\}/.exec(css)
+    truthy(flatten, 'flatten rule for .actions present')
+    has(flatten[1], 'display: contents', 'flattens the wrapper without removing it')
     has(css, '> div:has(> [data-slot="settings.section"])', 'content column is the direct parent')
   })
   check('collapsing changes grid columns only, and hides labels accessibly', () => {
@@ -301,6 +310,57 @@ function load(options = {}) {
     has(css, 'html[data-windows-titlebar][data-bsp-fullscreen="on"]', 'windows gate')
     has(css, 'html[data-platform="darwin"][data-bsp-fullscreen="on"]', 'darwin gate')
     has(css, '-webkit-app-region: drag', 'drag strip')
+  })
+}
+
+//#region 3b. header layout: collapse on the left, exit on the right
+{
+  const { mod } = load()
+  const css = mod.CSS
+  check('the toggle reaches the top-left corner by flattening its two wrappers', () => {
+    // `order` cannot do this job: the toggle is a grandchild of the header
+    // (header > .actions > [data-slot] > button), so order would only reorder it
+    // inside .actions. Both wrapper levels have to stop generating boxes.
+    const flattenActions = /div\[data-shortcut-modal="settings"\] > div:has\(\[data-slot="settings\.action"\]\) > div:has\(> \[data-slot="settings\.action"\]\)\{([^}]*)\}/.exec(css)
+    truthy(flattenActions, 'flattens .actions')
+    has(flattenActions[1], 'display: contents', '.actions must not generate a box')
+    const flattenOutlet = /div\[data-shortcut-modal="settings"\] > div:has\(\[data-slot="settings\.action"\]\) > div:has\(> \[data-slot="settings\.action"\]\) > \[data-slot="settings\.action"\]\{([^}]*)\}/.exec(css)
+    truthy(flattenOutlet, 'restates the outlet flattening')
+    has(flattenOutlet[1], 'display: contents', 'the outlet must not generate a box either')
+    // With both boxes gone the toggle is the header's first flex item; the auto
+    // margin then pushes every shipped button to the right.
+    const toggle = /div\[data-shortcut-modal="settings"\] \.bsp-rail-toggle\{([^}]*)\}/.exec(css)
+    truthy(toggle, 'toggle layout rule present')
+    has(toggle[1], 'margin-right: auto', 'toggle sits left, shipped buttons sit right')
+    absent(toggle[1], 'order', 'order cannot move a grandchild out of its flex parent')
+  })
+  check('the shipped close button is restyled, never moved or replaced', () => {
+    const close = 'div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > button:last-of-type'
+    has(css, close, 'addressed at the header level as last-of-type')
+    const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    absent(rules, 'settings.close', 'must not touch the close slot that carries the accessible name')
+    absent(rules, 'aria-label', 'the accessible name stays the host copy')
+    absent(rules, 'pointer-events: none', 'the button must stay clickable')
+    // The glyph swap must not delete the node: no display:none anywhere, and the
+    // shipped svg stays in the tree, only out of flow and invisible.
+    absent(css, 'display: none', 'display:none is forbidden in this project')
+    const hideSvg = /button:last-of-type > svg\{([^}]*)\}/.exec(css)
+    truthy(hideSvg, 'rule for the shipped glyph')
+    has(hideSvg[1], 'visibility: hidden', 'glyph hidden without being removed')
+    has(hideSvg[1], 'position: absolute', 'and takes no room next to the arrow')
+  })
+  check('the close glyph becomes a return arrow drawn as a mask', () => {
+    const after = /button:last-of-type::after\{([^}]*)\}/.exec(css)
+    truthy(after, 'arrow rule present')
+    has(after[1], 'background-color: currentColor', 'arrow follows the host theme')
+    has(after[1], 'mask: var(--bsp-return-icon)', 'masked with the inline svg')
+    has(after[1], 'width: 14px', 'matches the shipped icon box')
+    has(after[1], 'height: 14px', 'matches the shipped icon box')
+    const def = /button:last-of-type\{\s*\n?\s*--bsp-return-icon: url\("data:image\/svg\+xml/.exec(css)
+    truthy(def, 'the icon is defined on the button itself, so no ungated panel rule is needed')
+    // A text glyph would render differently per font; the arrow must be a path.
+    has(css, "data:image/svg+xml", 'arrow is an inline svg, not a character')
+    has(css, "stroke-linecap='round'", 'rounded strokes match the shipped icon style')
   })
 }
 //#endregion
