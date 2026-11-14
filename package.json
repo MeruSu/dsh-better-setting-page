@@ -1,0 +1,20 @@
+{
+  "name": "dsh-better-setting-page",
+  "version": "0.0.1",
+  "description": "Placeholder release: a full-screen settings page with a collapsible navigation rail for DeepSeek Harness. The real implementation ships in a later version.",
+  "license": "MIT",
+  "author": { "name": "MeruSu" },
+  "repository": { "type": "git", "url": "git+https://github.com/MeruSu/dsh-better-setting-page.git" },
+  "keywords": ["dsh", "deepseek-harness", "dsh-plugin", "ui"],
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["index.js", "client.js", "cordis.patch.yml", "README.md", "LICENSE"],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web" }
+  }
+}

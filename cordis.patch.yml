@@ -1,0 +1,4 @@
+# Placeholder bundle patch: activating the bundle loads the two halves above.
+- insert:
+    - id: better-setting-page
+      name: 'dsh-better-setting-page'
