@@ -561,33 +561,52 @@ function load(options = {}) {
     equal(seen.length, 1, 'subscriber notified')
     equal(document.attrs.get(fresh.FULLSCREEN_ATTR), 'off', 'attribute followed the event')
   })
-  check('uicPresenceOf is true only when the UI Controller registers a section', () => {
+  check('the UIC stand-down is gone: no probe, no guard, no "managed by" copy', () => {
     const { mod } = load()
-    equal(mod.UIC_SECTION_ID, 'ui-controller', 'the UIC section id is the contract')
-    equal(mod.uicPresenceOf(null), false, 'no ctx is absent')
-    equal(mod.uicPresenceOf({}), false, 'a ctx without slots is absent')
-    equal(mod.uicPresenceOf({ slots: {} }), false, 'slots without entries() is absent')
-    const slotsWith = (entries) => ({ slots: { entries: () => entries } })
-    equal(mod.uicPresenceOf(slotsWith([])), false, 'empty registry is absent')
-    equal(mod.uicPresenceOf(slotsWith([{ options: { id: 'models' } }])), false, 'other plugins do not count')
-    equal(mod.uicPresenceOf(slotsWith([
-      { options: { id: 'models' } },
-      { options: { id: 'ui-controller' } },
-    ])), true, 'the UIC entry means present')
-    const throwing = { slots: { entries() { throw new Error('registry not ready') } } }
-    equal(mod.uicPresenceOf(throwing), false, 'a throwing registry reads as absent')
+    equal(mod.uicPresenceOf, undefined, 'the presence probe is no longer exported')
+    equal(mod.UIC_SECTION_ID, undefined, 'nor the section id it matched on')
+    equal(mod.UIC_PANEL_ATTR, undefined, 'nor the panel attribute it guarded on')
+    equal('page.navCollapsedManaged' in mod.ZH, false, 'ZH dropped the "managed by" hint')
+    equal('page.navCollapsedManaged' in mod.EN, false, 'EN dropped the "managed by" hint')
   })
-  check('when the UIC owns the rail, data-bsp-nav is neither written nor kept', () => {
+  check('the stylesheet no longer guards the collapse rules on data-uic-nav', () => {
+    const { mod } = load()
+    // The guard existed so the UIC's expanded state could win over our 56px
+    // track. Nothing declares that attribute any more, and keeping the guard
+    // would silently disable collapsing in any profile where a stale UIC build
+    // still stamps it.
+    equal(mod.CSS.includes('data-uic-nav'), false, 'no data-uic-nav anywhere in the CSS')
+    equal(mod.CSS.includes(':not([data-uic-nav])'), false, 'no :not() stand-down guard left')
+    truthy(mod.CSS.includes('html[data-bsp-nav="collapsed"] div[data-shortcut-modal="settings"]'),
+      'the collapse rules still key off our own attribute')
+    equal(mod.CSS.split('html[data-bsp-nav="collapsed"]').length - 1, 5,
+      'all five collapse rules survived, unguarded')
+  })
+  check('REGRESSION TRAP: with the UIC installed the collapse row must still work', () => {
+    // 0.1.5 stood down whenever a `ui-controller` section was in the registry: it
+    // stopped writing data-bsp-nav, suppressed the header chevron, and disabled
+    // this row with a hint pointing at the UIC's three states. The UIC then
+    // dropped those states, so the stand-down left the rail owned by nobody —
+    // the switch rendered greyed and did nothing in every profile that had both.
+    // These assertions fail the moment that stand-down comes back.
     const { mod, document } = load({
       entries: [
         { options: { id: 'ui-controller', order: 40, label: () => 'UI' } },
         { options: { id: 'better-setting-page', order: 50, label: () => 'section.nav' } },
       ],
     })
-    equal(document.attrs.has(mod.FULLSCREEN_ATTR), true, 'fullscreen still applied under the UIC')
-    equal(document.attrs.has(mod.NAV_ATTR), false, 'no nav attribute when the UIC owns the rail')
+    equal(document.attrs.get(mod.NAV_ATTR), 'expanded', 'the nav attribute is written with the UIC around')
     mod.writeSettings({ navCollapsed: true })
-    equal(document.attrs.has(mod.NAV_ATTR), false, 'still no nav attribute after a collapse write')
+    equal(document.attrs.get(mod.NAV_ATTR), 'collapsed', 'and it follows the switch')
+    const toggle = mod.RailToggle({ t: (key) => key })
+    truthy(toggle !== null && toggle !== undefined, 'the header chevron is rendered, not suppressed')
+    equal(toggle.props.className, 'bsp-rail-toggle', 'and it is still our toggle')
+    const page = mod.SettingsPage({ t: (key) => key })
+    const row = page.props.children.filter((node) => node && node.props && node.props.className === 'bsp-row')[1]
+    const box = row.props.children.find((child) => child && child.type === 'input')
+    equal(box.props.disabled, undefined, 'the row is enabled, not greyed out')
+    equal(String(row.props.children[0].props.children[1].props.children), 'page.navCollapsedHint',
+      'the hint is ours again, not the "managed by" text')
   })
   check('without the UIC, data-bsp-nav is still written as before', () => {
     const { mod, document } = load()

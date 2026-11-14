@@ -8,6 +8,36 @@ Two version numbers exist in this project and they are not the same thing:
 - the stored settings `version` — moves only when the shape of the saved record
   changes. This release ships shape `1`.
 
+## 0.1.6 — 2026-11-15
+
+Undoes the stand-down introduced in 0.1.5. **UI Controller 0.2.0 no longer manages
+the settings-page rail** — its three-state toggle (expanded / rail / hidden) was
+removed on request, so from that release on nothing on that side drove
+`grid-template-columns` any more. The 0.1.5 contract therefore left the rail owned
+by nobody: this plugin disabled its own switch and pointed at a feature the other
+plugin had already deleted.
+
+The symptom was only visible in a profile that had both plugins installed; a
+profile without the UIC kept working, which is why it looked like a version
+difference between two builds. It was not — both instances shipped the same 0.1.5
+file.
+
+### Changed
+
+- Removed the stand-down: `uicPresenceOf()`, `UIC_SECTION_ID` and `UIC_PANEL_ATTR`
+  are gone, and the five collapse rules no longer carry a
+  `:not([data-uic-nav])` guard.
+- **Collapse the section list by default** is usable again in every profile. It is
+  no longer disabled, and its hint is back to "shrinks the rail to a 56px icon
+  column…" instead of pointing at the UIC.
+- The header chevron is always rendered; `data-bsp-nav` is always written.
+- The i18n key `page.navCollapsedManaged` is removed from both dictionaries.
+
+### Notes
+
+- Stored record shape is untouched; `settings.version` stays `1`.
+- If a UI Controller build still stamps `data-uic-nav`, it is now simply ignored.
+
 ## 0.1.5 — 2026-11-14
 
 The rail now yields to the [UI Controller](https://github.com/MeruSu/dsh-ui-controller) plugin. With the UIC installed, two plugins were fighting over the same `grid-template-columns` declaration: the UIC deliberately leaves `expanded` to the host's own width, while this plugin's collapsed rule kept winning at 56px — so "expanded" rendered as a 56px rail.

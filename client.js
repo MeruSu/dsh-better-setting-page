@@ -56,7 +56,7 @@ window.__ModuleLoader__.load({
 
     /** Locale namespace and the prefix of every DOM attribute we own. */
     const NS = 'better-setting-page'
-    const VERSION = '0.1.5'
+    const VERSION = '0.1.6'
 
     /** localStorage key. Bumping `SETTINGS_VERSION` requires a migration. */
     const STORE_KEY = 'dsh.better-setting-page.settings'
@@ -76,12 +76,6 @@ window.__ModuleLoader__.load({
     /** `<html>` attributes: the only state the stylesheet reads. */
     const FULLSCREEN_ATTR = 'data-bsp-fullscreen'
     const NAV_ATTR = 'data-bsp-nav'
-    /** dsh-ui-controller's settings page id. Its presence in the section
-     *  registry means it owns the rail, so ours stands down (see uicPresenceOf). */
-    const UIC_SECTION_ID = 'ui-controller'
-    /** The attribute the UIC stamps on the settings panel. The stylesheet reads
-     *  it as a second guard, so a stale data-bsp-nav can never collapse the rail. */
-    const UIC_PANEL_ATTR = 'data-uic-nav'
     /** Id we lend to the host's `<nav>` so `aria-controls` has a target. */
     const NAV_ID = 'dsh-bsp-nav'
 
@@ -183,19 +177,18 @@ html[data-bsp-fullscreen="on"] div[data-shortcut-modal="settings"] [data-slot="s
 @media (min-width: 768px){
   /* Only the grid-template-columns longhand: the area names in the shorthand are
      CSS-Modules hashes and would break on the next build.
-     When dsh-ui-controller owns the rail it stamps data-uic-nav on the panel;
-     this rule must then stand down, or its 56px track would beat the UIC's
-     expanded state (measured: expanded renders 56px because nobody declares a
-     track). The guard reads the same attribute applyToDocument checks, so a
-     stale data-bsp-nav left over from before the UIC was installed can not
-     collapse the rail either. */
-  html[data-bsp-nav="collapsed"] div[data-shortcut-modal="settings"]:not([data-uic-nav]){
+     No guard attribute on the panel: nothing else draws this rail any more. An
+     older revision stood down for dsh-ui-controller here, but that plugin gave up
+     the rail (its expanded / rail / hidden states are gone), so a guard would
+     leave the rail owned by nobody — collapsed by this plugin's button, driven by
+     no rule at all. */
+  html[data-bsp-nav="collapsed"] div[data-shortcut-modal="settings"]{
     grid-template-columns: 56px minmax(0, 1fr);
   }
-  html[data-bsp-nav="collapsed"] div[data-shortcut-modal="settings"]:not([data-uic-nav]) > nav{
+  html[data-bsp-nav="collapsed"] div[data-shortcut-modal="settings"] > nav{
     padding: 10px 8px 0;
   }
-  html[data-bsp-nav="collapsed"] div[data-shortcut-modal="settings"]:not([data-uic-nav]) > nav > div > button{
+  html[data-bsp-nav="collapsed"] div[data-shortcut-modal="settings"] > nav > div > button{
     /* Anchors the visually-hidden label to its own cell instead of the panel. */
     position: relative;
     justify-content: center;
@@ -204,7 +197,7 @@ html[data-bsp-fullscreen="on"] div[data-shortcut-modal="settings"] [data-slot="s
   }
   /* The panel title stays readable, it just loses its 24px indent. Hiding it
      would also hide the dialog's accessible name, which is this node. */
-  html[data-bsp-nav="collapsed"] div[data-shortcut-modal="settings"]:not([data-uic-nav]) > div[id]{
+  html[data-bsp-nav="collapsed"] div[data-shortcut-modal="settings"] > div[id]{
     padding: 22px 4px 8px;
     overflow: hidden;
     font-size: 13px;
@@ -217,7 +210,7 @@ html[data-bsp-fullscreen="on"] div[data-shortcut-modal="settings"] [data-slot="s
      icon is all that is left, and the icon carries no accessible name of its
      own. Second span rather than last-child, so that a cell rendered without an
      icon span never causes the icon itself to be hidden. */
-  html[data-bsp-nav="collapsed"] div[data-shortcut-modal="settings"]:not([data-uic-nav]) > nav > div > button > span:nth-child(2){
+  html[data-bsp-nav="collapsed"] div[data-shortcut-modal="settings"] > nav > div > button > span:nth-child(2){
     position: absolute;
     width: 1px;
     height: 1px;
@@ -503,7 +496,6 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       'page.fullscreenHint': '铺满整个窗口。桌面版会在顶部留出标题栏高度，那一条仍然可以拖动窗口。',
       'page.navCollapsed': '默认收起左侧分类栏',
       'page.navCollapsedHint': '收成 56px 图标栏，分类名保留给读屏。点右上角箭头可随时切换。',
-      'page.navCollapsedManaged': '由「界面控制」插件管理（它有展开 / 图标栏 / 隐藏三态）。',
       'page.reset': '恢复默认',
       'page.resetDone': '已恢复默认',
       'page.saveFailed': '浏览器拒绝保存（localStorage 已满或被禁用），这次改动没有生效。',
@@ -528,7 +520,6 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       'page.fullscreenHint': 'Fill the whole window. On desktop the title-bar height is kept as padding, and that strip still drags the window.',
       'page.navCollapsed': 'Collapse the section list by default',
       'page.navCollapsedHint': 'Shrinks the rail to a 56px icon column; section names stay in the accessibility tree. Toggle it any time with the arrow in the header.',
-      'page.navCollapsedManaged': 'Managed by the UI Controller plugin, which has its own expanded / rail / hidden states.',
       'page.reset': 'Restore defaults',
       'page.resetDone': 'Defaults restored',
       'page.saveFailed': 'The browser refused to save this (localStorage full or blocked); the change did not stick.',
@@ -621,10 +612,6 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
 
     let cache = null
     const listeners = new Set()
-    /** Cached answer of `uicPresenceOf`, refreshed whenever the plugin applies
-     *  and whenever the section registry changes. Read by `applyToDocument` and
-     *  by the two components, so the decision is made in one place. */
-    let uicPresent = false
 
     function currentSettings() {
       if (cache === null) cache = readSettings()
@@ -666,43 +653,12 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       return () => listeners.delete(listener)
     }
 
-    /** True when dsh-ui-controller is installed, read from the slot registry.
-     *  The registry is the only source that is correct before the settings
-     *  panel has ever been mounted; the panel attribute it also stamps is used
-     *  by the stylesheet as a second, always-current guard. A ctx without a
-     *  slots service means false, so a solo install behaves exactly as before. */
-    function uicPresenceOf(ctx) {
-      if (ctx === null || ctx === undefined) return false
-      const slots = ctx.slots
-      if (slots === null || slots === undefined || typeof slots.entries !== 'function') return false
-      let entries = null
-      try {
-        entries = slots.entries('settings.section')
-      } catch (error) {
-        return false
-      }
-      if (!Array.isArray(entries)) return false
-      return entries.some((entry) => {
-        if (entry === null || entry === undefined) return false
-        const options = entry.options
-        if (options === null || options === undefined) return false
-        return options.id === UIC_SECTION_ID
-      })
-    }
-
     /** The only DOM this plugin writes outside its own subtree. */
     function applyToDocument(settings) {
       if (typeof document === 'undefined') return
       const root = document.documentElement
       if (root === null || root === undefined) return
-      // The UIC owns the rail when it is installed: our data-bsp-nav would fight
-      // its expanded state, so we neither write it nor keep a stale one. The
-      // full-screen attribute is ours alone and keeps working either way.
-      if (uicPresent) {
-        root.removeAttribute(NAV_ATTR)
-      } else {
-        root.setAttribute(NAV_ATTR, settings.navCollapsed === true ? 'collapsed' : 'expanded')
-      }
+      root.setAttribute(NAV_ATTR, settings.navCollapsed === true ? 'collapsed' : 'expanded')
       root.setAttribute(FULLSCREEN_ATTR, settings.fullscreen === true ? 'on' : 'off')
     }
 
@@ -939,14 +895,6 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       let disposed = false
       const sync = () => {
         if (disposed) return
-        // The section registry is also how we learn whether the UIC is loaded,
-        // so this is the one place that keeps the decision current: if it shows
-        // up (or disappears) after apply, the attribute follows immediately.
-        const present = uicPresenceOf(ctx)
-        if (present !== uicPresent) {
-          uicPresent = present
-          applyToDocument(currentSettings())
-        }
         markNavRows(collectSections(ctx))
         applyHiddenRows(currentSettings().hidden)
       }
@@ -1008,12 +956,6 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       const ownedNavId = React.useRef(false)
       const [controls, setControls] = React.useState(NAV_ID)
       const collapsed = settings.navCollapsed === true
-      // The UIC owns the rail when it is installed: its three-state toggle
-      // replaces ours, and rendering ours would show two competing controls.
-      // Read from props.ctx at render time so a registry that became complete
-      // after apply is still noticed; the module flag is the fallback for
-      // renders without ctx.
-      const uicOwnsRail = props.ctx === undefined ? uicPresent : uicPresenceOf(props.ctx)
 
       React.useEffect(() => {
         // Lend the host's <nav> an id so aria-controls has something to point at.
@@ -1034,8 +976,6 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       }, [])
 
       const label = collapsed ? t('rail.expand') : t('rail.collapse')
-
-      if (uicOwnsRail) return null
 
       return h('button', {
         ref: buttonRef,
@@ -1086,7 +1026,6 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       const t = translateOf(props)
       const settings = useSettings()
       const [notice, setNotice] = React.useState('')
-      const uicOwnsRail = props.ctx === undefined ? uicPresent : uicPresenceOf(props.ctx)
 
       React.useEffect(() => {
         if (notice === '') return undefined
@@ -1181,11 +1120,9 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
         ]),
         row('page.fullscreen', 'page.fullscreenHint', settings.fullscreen === true,
           (next) => write({ fullscreen: next })),
-        row('page.navCollapsed',
-          uicOwnsRail ? 'page.navCollapsedManaged' : 'page.navCollapsedHint',
+        row('page.navCollapsed', 'page.navCollapsedHint',
           settings.navCollapsed === true,
-          (next) => write({ navCollapsed: next }),
-          uicOwnsRail),
+          (next) => write({ navCollapsed: next })),
         h('div', { key: 'sections', className: 'bsp-sections' }, [
           h('h3', { key: 'title', className: 'bsp-rowLabel' }, t('pages.title')),
           h('p', { key: 'intro', className: 'bsp-sub' }, t('pages.intro')),
@@ -1211,7 +1148,6 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
     //#region entry
     function apply(ctx) {
       const t = ctx.locale.bind(NS)
-      uicPresent = uicPresenceOf(ctx)
       cache = readSettings()
       applyToDocument(cache)
 
@@ -1237,7 +1173,7 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
         id: ACTION_ID,
         order: 0,
         locale: NS,
-      }, (props) => h(RailToggle, { t, ctx })))
+      }, (props) => h(RailToggle, { t })))
 
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
@@ -1267,8 +1203,6 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       DEFAULTS,
       FULLSCREEN_ATTR,
       NAV_ATTR,
-      UIC_SECTION_ID,
-      UIC_PANEL_ATTR,
       NAV_ID,
       PANEL,
       SECTION_ID,
@@ -1294,7 +1228,6 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       subscribeSettings,
       applyToDocument,
       clearDocument,
-      uicPresenceOf,
       currentSettings,
       lastErrorOf: () => lastError,
       RailToggle,

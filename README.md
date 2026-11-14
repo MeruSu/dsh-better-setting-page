@@ -40,16 +40,46 @@ the mask. The mask is still there and still clickable — with full screen on it
 simply covered by the panel, so in practice `Esc` and the close button are what
 you reach for.
 
+### What collapsing the rail actually buys you
+
+Saving 132px sounds like housekeeping. It is not: the rail is where a settings
+page competes with itself for width, and collapsing it is the one change that
+helps both ways you can hold the window.
+
+- **Wide window, rail and content side by side.** The section list drops from
+  188px to a 56px icon column and that width goes straight to the content. Long
+  explanations stop breaking at awkward points, multi-column rows stop
+  squeezing, and a settings line that was turning into a paragraph fits on one
+  line again.
+- **Tall or narrow window — portrait, half-screen, a small laptop.** Here the
+  rail is not just unused space, it is a fight: the section names and the content
+  both want to be legible in the same 800px, and the thing that loses is what you
+  came to read. Collapsed, the names step aside, the content stops needing
+  horizontal scrolling, and nothing has to wrap into a wall of text.
+
+So the switch is not about having less chrome. It is about the same page staying
+readable in both orientations — in a portrait window and in a landscape one
+alike, the layout gets calmer and looks better than it does with the rail
+standing open.
+
 The rail is collapsed by CSS only; the section names are visually hidden, not
 removed, so `Tab` still lands on each entry and a screen reader still announces
 it. There is no hover-to-expand: the arrow toggles, nothing else moves.
 
-**If the [UI Controller](https://github.com/MeruSu/dsh-ui-controller) plugin is
-also installed, this one stands down.** The UIC owns the rail in that setup
-(expanded / icon rail / hidden), so this plugin stops writing its own
-`data-bsp-nav` attribute, its collapse styles yield to the UIC's, the chevron
-is not rendered and the "Collapse the section list" switch is disabled with an
-explanatory hint. Installed alone, this plugin behaves exactly as before.
+## Screenshots
+
+![The settings dialog filling the whole window, section rail down the left edge](screenshots/settings-page-overview.png)
+
+The 800px dialog is now the page: the section rail runs down the left edge with
+every installed plugin's page in it, and the content column gets the rest of the
+window.
+
+![This plugin's own settings page, with the hidden-pages list](screenshots/settings-page-hidden-pages.png)
+
+This plugin's own page under **Settings → Settings page**: the two switches, and
+the hidden-pages list with *Models*, *Built-in plugins* and *Agent presets*
+ticked. Those three are gone from the rail on the left, and this list is the only
+place that can still open them.
 
 ## How it works
 
@@ -161,13 +191,14 @@ empty string, never this page's own id, capped at 64 entries.
     client.js            browser half: stylesheet, rail toggle, settings page
     index.js             host half: exists so the bundle resolves, injects nothing
     cordis.patch.yml     bundle patch
-    test/settings-page.test.mjs   56 checks, no dependencies
+    screenshots/         the two images used above
+    test/settings-page.test.mjs   57 checks, no dependencies
 
 ## Tests
 
     node --check client.js
     node --check index.js
-    node test/settings-page.test.mjs     # → PASS — 56 groups
+    node test/settings-page.test.mjs     # → PASS — 57 groups
 
 The test executes the real `client.js` with a stubbed `window.__ModuleLoader__`
 and asserts on the exported strings and store, including four regression traps:

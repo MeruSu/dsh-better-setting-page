@@ -1,6 +1,6 @@
 {
   "name": "dsh-better-setting-page",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": false,
   "description": "Full-screen settings page with a collapsible navigation rail for DeepSeek Harness, plus a small page holding the two switches.",
   "license": "MIT",
@@ -35,7 +35,8 @@
     "README.zh.md",
     "LICENSE",
     "locale",
-    "icon.svg"
+    "icon.svg",
+    "screenshots"
   ],
   "dsh": {
     "bundle": {
