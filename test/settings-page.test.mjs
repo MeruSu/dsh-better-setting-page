@@ -18,6 +18,9 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const source = readFileSync(join(here, '..', 'client.js'), 'utf8')
 
+/** The one anchor the host guarantees: the panel carries this attribute. */
+const PANEL_SELECTOR = 'div[data-shortcut-modal="settings"]'
+
 let groups = 0
 const failures = []
 
@@ -110,6 +113,7 @@ function fakeDocument() {
   return {
     attrs,
     styles,
+    body: { appendChild() {}, removeChild() {} },
     documentElement: {
       setAttribute(name, value) { attrs.set(name, String(value)) },
       getAttribute(name) { return attrs.has(name) ? attrs.get(name) : null },
@@ -121,6 +125,80 @@ function fakeDocument() {
     createElement(tag) {
       return { tagName: tag, dataset: {}, textContent: '', isConnected: false, remove() { this.isConnected = false } }
     },
+    querySelector() { return null },
+  }
+}
+
+/**
+ * A nav stand-in: the host renders `<nav><div><button><span/><span/></button>…`.
+ * Only the parts our code touches are modelled — attributes, text, click.
+ */
+function fakeNav(labels, currentIndex = -1) {
+  const makeCell = (label, index) => {
+    const attributes = new Map()
+    if (index === currentIndex) attributes.set('aria-current', 'true')
+    return {
+      textContent: label,
+      clicked: 0,
+      setAttribute(name, value) { attributes.set(name, String(value)) },
+      getAttribute(name) { return attributes.has(name) ? attributes.get(name) : null },
+      removeAttribute(name) { attributes.delete(name) },
+      click() { this.clicked += 1 },
+      attributes,
+    }
+  }
+  const cells = labels.map(makeCell)
+  const nav = {
+    cells,
+    id: '',
+    setAttribute() {},
+    removeAttribute() {},
+    querySelectorAll(selector) {
+      if (selector === 'button') return cells.slice()
+      const match = /\[([\w-]+)\]/.exec(selector)
+      if (match === null) return []
+      return cells.filter((cell) => cell.getAttribute(match[1]) !== null)
+    },
+    querySelector(selector) {
+      if (selector === 'button[aria-current="true"]') {
+        return cells.find((cell) => cell.getAttribute('aria-current') === 'true') || null
+      }
+      return null
+    },
+  }
+  const panel = {
+    nav,
+    querySelector(selector) { return selector === ':scope > nav' ? nav : null },
+  }
+  return { nav, panel, cells }
+}
+
+/** A ctx whose slots answer the way the real registry does. */
+function fakeSlotsCtx(options = {}) {
+  const entries = options.entries || []
+  const subscribers = []
+  const actions = options.shellActions === undefined ? null : options.shellActions
+  return {
+    entries,
+    subscribers,
+    ctx: {
+      slots: {
+        entries(key) {
+          equal(key, 'settings.section', 'collectSections reads the section slot')
+          return entries
+        },
+        subscribe(key, fn) {
+          subscribers.push({ key, fn })
+          return () => {}
+        },
+        entriesOfSlot(key) {
+          equal(key, 'sidebar.settings', 'shell handle is read from the shipped slot')
+          if (actions === null) return []
+          return [{ store: { create: () => ({ actions }) } }]
+        },
+      },
+    },
+    actions,
   }
 }
 
@@ -136,6 +214,7 @@ function load(options = {}) {
   const captured = []
   const effects = []
   const localeDictionaries = []
+  const registrySubscribers = []
 
   const window = {
     localStorage: storage,
@@ -191,12 +270,35 @@ function load(options = {}) {
         captured.push({ options, component })
         return () => {}
       },
+      // The registry the plugin reads its page list from. Default: only ourselves.
+      entries(key) {
+        equal(key, 'settings.section', 'entries() is asked for the section slot')
+        if (options.entries !== undefined) return options.entries
+        return [{ options: { id: mod.SECTION_ID, order: mod.SECTION_ORDER, label: () => 'section.nav' } }]
+      },
+      subscribe(key, fn) {
+        equal(key, 'settings.section', 'subscribe() watches the section slot')
+        registrySubscribers.push(fn)
+        return () => {
+          const index = registrySubscribers.indexOf(fn)
+          if (index >= 0) registrySubscribers.splice(index, 1)
+        }
+      },
+      entriesOfSlot(key) {
+        equal(key, 'sidebar.settings', 'the shell handle is read from sidebar.settings')
+        if (options.shellActions === undefined) return []
+        return [{
+          store: {
+            create: () => ({ actions: options.shellActions }),
+          },
+        }]
+      },
     },
   }
 
   mod.apply(ctx)
 
-  return { mod, React, storage, document, listeners, captured, effects, localeDictionaries, window, t }
+  return { mod, React, storage, document, listeners, captured, effects, localeDictionaries, window, t, ctx, registrySubscribers }
 }
 //#endregion
 
@@ -278,9 +380,12 @@ function load(options = {}) {
     absent(maskRule[1], 'pointer-events', 'mask rule must not touch pointer-events')
     has(maskRule[1], 'background: transparent', 'mask paints nothing')
     has(maskRule[1], 'backdrop-filter: none', 'mask blurs nothing')
-    absent(css, 'display: none', 'no display:none anywhere (it deletes click-outside-to-close)')
-    absent(css, 'pointer-events: none', 'no pointer-events:none anywhere')
-  })
+    // display:none exists in exactly one rule now (the hidden nav row), and it is
+    // not this one. Anything else using it is the click-outside bug coming back.
+    const hiding = css.split('display: none').length - 1
+    equal(hiding, 1, 'exactly one display:none in the whole stylesheet')
+    has(css, '[data-bsp-hidden="1"]', 'and it belongs to the hidden nav row')
+    absent(css, 'pointer-events: none', 'no pointer-events:none anywhere')  })
   check('the header row is matched by descendant, because data-slot sits inside .actions', () => {
     // The header *padding* rule must reach .header, which is the slot outlet's
     // grandparent: a direct-child form there would style .actions instead.
@@ -345,9 +450,13 @@ function load(options = {}) {
     absent(rules, 'settings.close', 'must not touch the close slot that carries the accessible name')
     absent(rules, 'aria-label', 'the accessible name stays the host copy')
     absent(rules, 'pointer-events: none', 'the button must stay clickable')
-    // The glyph swap must not delete the node: no display:none anywhere, and the
-    // shipped svg stays in the tree, only out of flow and invisible.
-    absent(css, 'display: none', 'display:none is forbidden in this project')
+    // The glyph swap must not delete the node: the shipped svg stays in the tree,
+    // only out of flow and invisible. display:none is allowed in exactly one place
+    // in this stylesheet (the hidden nav row); it must never reach this button.
+    const hideRules = rules.match(/[^{}]*\{[^}]*display: none[^}]*\}/g) || []
+    equal(hideRules.length, 1, 'only one rule hides anything at all')
+    has(hideRules[0], '[data-bsp-hidden="1"]', 'and it is the hidden nav row, not the close button')
+    absent(hideRules[0], 'last-of-type', 'the close button is never display:none')
     const hideSvg = /button:last-of-type > svg\{([^}]*)\}/.exec(css)
     truthy(hideSvg, 'rule for the shipped glyph')
     has(hideSvg[1], 'visibility: hidden', 'glyph hidden without being removed')
@@ -539,6 +648,257 @@ function load(options = {}) {
     }
     const ungated = /(^|\n)div\[data-shortcut-modal="settings"\]\{/.test(mod.CSS)
     if (ungated) throw new Error('there is an ungated panel rule: it would apply even with fullscreen off')
+  })
+}
+//#endregion
+
+//#region 7. hidden pages
+/**
+ * The feature's own invariant, and the reason it is safe: the list of pages comes
+ * from the slot registry (never from the DOM, which is empty on a cold start), an
+ * id is only ever hidden after we marked the row ourselves, and our own page can
+ * never enter the list — hiding it would delete the only door back in.
+ */
+{
+  const { mod } = load()
+  check('the hidden list keeps strings, drops duplicates and our own page', () => {
+    const clean = mod.sanitizeHidden([
+      'models', 'models', '  agents  ', '', 42, null, undefined, mod.SECTION_ID, 'models',
+    ])
+    equal(JSON.stringify(clean), JSON.stringify(['models', 'agents']), 'trimmed, deduped, self excluded')
+    equal(JSON.stringify(mod.sanitizeHidden('models')), JSON.stringify([]), 'a non-array is not a crash')
+    equal(JSON.stringify(mod.sanitizeHidden(null)), JSON.stringify([]), 'null is not a crash')
+  })
+  check('the list is capped so a corrupt value cannot grow without bound', () => {
+    const many = []
+    for (let index = 0; index < mod.HIDDEN_MAX + 20; index += 1) many.push('page-' + index)
+    equal(mod.sanitizeHidden(many).length, mod.HIDDEN_MAX, 'capped at HIDDEN_MAX')
+  })
+  check('hidden ids survive a read/write round trip, unknown keys still ride along', () => {
+    const { mod: fresh, storage } = load()
+    fresh.writeSettings({ hidden: ['models', 'agents'], keepMe: { deep: true } })
+    const raw = JSON.parse(storage.map.get(fresh.STORE_KEY))
+    equal(JSON.stringify(raw.hidden), JSON.stringify(['models', 'agents']), 'written to disk')
+    equal(JSON.stringify(raw.unknown.keepMe), JSON.stringify({ deep: true }), 'unknown key preserved')
+    equal(JSON.stringify(fresh.readSettings().hidden), JSON.stringify(['models', 'agents']), 'read back')
+    fresh.writeSettings({ hidden: ['models', fresh.SECTION_ID] })
+    equal(JSON.stringify(fresh.readSettings().hidden), JSON.stringify(['models']), 'self never lands on disk')
+  })
+  check('restore defaults clears the hidden list too', () => {
+    const { mod: fresh } = load()
+    fresh.writeSettings({ hidden: ['models'] })
+    fresh.resetSettings()
+    equal(JSON.stringify(fresh.readSettings().hidden), JSON.stringify([]), 'list cleared')
+  })
+  check('the page list comes from the registry, not from the radio of a mounted nav', () => {
+    const entries = [
+      { options: { id: 'models', order: 10, label: () => 'Models' } },
+      { options: { id: 'agents', order: 20, label: 'Agents' } },
+      { options: { id: 'throws', order: 30, label: () => { throw new Error('boom') } } },
+      { options: { id: '', order: 40, label: 'nameless' } },
+      { options: {} },
+    ]
+    const { ctx } = fakeSlotsCtx({ entries })
+    const list = mod.collectSections(ctx)
+    equal(list.map((row) => row.id).join(','), 'models,agents,throws', 'ids in order, nameless dropped')
+    equal(list[0].label, 'Models', 'thunk labels are resolved')
+    equal(list[1].label, 'Agents', 'plain labels pass through')
+    equal(list[2].label, '', 'a throwing thunk degrades to an empty label, not a crash')
+    equal(mod.collectSections(undefined).length, 0, 'no ctx is not a crash')
+  })
+  check('nav rows are marked with their section id, by label first then by position', () => {
+    // Position fallback is what matters when a label was re-worded by i18n:
+    // the third cell must still be our own page, never a neighbour's.
+    const entries = [
+      { options: { id: 'models', order: 10, label: () => 'Models' } },
+      { options: { id: 'agents', order: 20, label: () => 'Agents' } },
+      { options: { id: mod.SECTION_ID, order: 50, label: () => 'Settings page' } },
+    ]
+    const sections = mod.collectSections(fakeSlotsCtx({ entries }).ctx)
+    equal(sections.map((row) => row.id).join(','), 'models,agents,better-setting-page', 'registry order')
+    equal(sections[2].id, mod.SECTION_ID, 'position matches the shell sort')
+  })
+  check('opening a page goes through the shell store and refuses nonsense', () => {
+    const calls = []
+    const actions = {
+      openSection(id) { calls.push(id) },
+      select(id) { calls.push('select:' + id) },
+    }
+    const { ctx } = fakeSlotsCtx({ shellActions: actions })
+    equal(mod.openSection(ctx, 'models'), true, 'a real id is dispatched')
+    equal(JSON.stringify(calls), JSON.stringify(['models']), 'openSection is the action used')
+    equal(mod.openSection(ctx, mod.SECTION_ID), false, 'our own page is never a target')
+    equal(mod.openSection(ctx, ''), false, 'an empty id is refused')
+    const noStore = fakeSlotsCtx({})
+    equal(mod.openSection(noStore.ctx, 'models'), true, 'still returns true and falls back to the DOM path')
+  })
+  check('the shell actions are read from the shipped sidebar.settings handle', () => {
+    const actions = { openSection() {} }
+    const { ctx } = fakeSlotsCtx({ shellActions: actions })
+    equal(mod.shellActionsOf(ctx), actions, 'handle → store → create() → actions')
+    equal(mod.shellActionsOf(fakeSlotsCtx({}).ctx), null, 'no handle means null, not a throw')
+    equal(mod.shellActionsOf(undefined), null, 'no ctx means null, not a throw')
+  })
+}
+//#endregion
+
+//#region 8. hidden pages: the page UI
+{
+  const entries = [
+    { options: { id: 'models', order: 10, label: () => 'Models' } },
+    { options: { id: 'agents', order: 20, label: () => 'Agents' } },
+    { options: { id: 'better-setting-page', order: 50, label: () => 'Settings page' } },
+  ]
+  const { mod, ctx } = load({ entries })
+  mod.writeSettings({ hidden: ['models'] })
+  const tree = mod.SettingsPage({ t: (key) => key, ctx })
+  const live = mod.readSettings()
+
+  check('every page is listed, including the hidden one', () => {
+    const list = tree.props.children.find((node) => node && node.props && node.props.className === 'bsp-sections')
+    truthy(list, 'sections block rendered')
+    const rows = list.props.children.filter((node) => node && node.props && node.props.className === 'bsp-sectionRow')
+    equal(rows.length, 3, 'one row per page in the registry')
+    const ids = rows.map((row) => row.props['data-bsp-section'])
+    equal(ids.join(','), 'models,agents,better-setting-page', 'registry order')
+    equal(rows[0].props['data-bsp-section-hidden'], '1', 'the hidden page is flagged')
+    equal(rows[1].props['data-bsp-section-hidden'], '0', 'the visible page is not')
+  })
+  check('the hidden page can still be opened from the list', () => {
+    const calls = []
+    const actions = { openSection(id) { calls.push(id) } }
+    const { mod: fresh, ctx: withShell } = load({ entries, shellActions: actions })
+    fresh.writeSettings({ hidden: ['models'] })
+    const page = fresh.SettingsPage({ t: (key) => key, ctx: withShell })
+    const list = page.props.children.find((node) => node && node.props && node.props.className === 'bsp-sections')
+    const rows = list.props.children.filter((node) => node && node.props && node.props.className === 'bsp-sectionRow')
+    const link = rows[0].props.children.find((node) => node && node.props && node.props.className === 'bsp-sectionLink')
+    truthy(typeof link.props.onClick === 'function', 'the name is a button')
+    link.props.onClick()
+    equal(JSON.stringify(calls), JSON.stringify(['models']), 'clicking the hidden page asks the shell to open it')
+    equal(link.props['aria-disabled'], undefined, 'a hidden page is not disabled: it must stay reachable')
+  })
+  check('our own page is listed read-only, with no checkbox', () => {
+    const list = tree.props.children.find((node) => node && node.props && node.props.className === 'bsp-sections')
+    const rows = list.props.children.filter((node) => node && node.props && node.props.className === 'bsp-sectionRow')
+    const self = rows[2]
+    const box = self.props.children.find((node) => node && node.type === 'input')
+    equal(box, undefined, 'no checkbox on our own row')
+    const link = self.props.children.find((node) => node && node.props && node.props.className === 'bsp-sectionLink')
+    equal(link.props['aria-disabled'], 'true', 'and it is not clickable')
+  })
+  check('the checkbox writes the id into the hidden list and can undo it', () => {
+    const list = tree.props.children.find((node) => node && node.props && node.props.className === 'bsp-sections')
+    const rows = list.props.children.filter((node) => node && node.props && node.props.className === 'bsp-sectionRow')
+    const boxOf = (row) => row.props.children.find((node) => node && node.type === 'input')
+    // models is hidden already: clearing it must remove the id, not add another.
+    boxOf(rows[0]).props.onChange({ target: { checked: false } })
+    equal(JSON.stringify(mod.readSettings().hidden), JSON.stringify([]), 'unhidden')
+    // agents is visible: checking it must append.
+    boxOf(rows[1]).props.onChange({ target: { checked: true } })
+    equal(JSON.stringify(mod.readSettings().hidden), JSON.stringify(['agents']), 'hidden')
+    // Toggling twice must not duplicate the id: the sanitizer collapses it, so a
+    // double-click or two windows writing the same id cannot grow the list.
+    boxOf(rows[1]).props.onChange({ target: { checked: true } })
+    equal(JSON.stringify(mod.readSettings().hidden), JSON.stringify(['agents']), 'idempotent')
+  })
+  check('the page renders the same with an empty registry and with no ctx at all', () => {
+    const { mod: bare, ctx: emptyCtx } = load({ entries: [] })
+    const page = bare.SettingsPage({ t: (key) => key, ctx: emptyCtx })
+    const list = page.props.children.find((node) => node && node.props && node.props.className === 'bsp-sections')
+    const rows = list.props.children.filter((node) => node && node.props && node.props.className === 'bsp-sectionRow')
+    equal(rows.length, 0, 'no rows')
+    const note = list.props.children.find((node) => node && node.props && node.props.className === 'bsp-sub'
+      && String(node.props.children).includes('pages.empty'))
+    truthy(note, 'an empty-registry message instead of a blank block')
+    const noCtx = bare.SettingsPage({ t: (key) => key })
+    truthy(noCtx.props.children.length > 0, 'rendering without ctx does not throw')
+  })
+}
+//#endregion
+
+//#region 9. hidden rows: stylesheet and nav marking
+{
+  check('the hide rule can only reach a nav row we marked ourselves', () => {
+    const { mod } = load()
+    const rules = mod.CSS.match(/[^{}]*\{[^}]*display: none[^}]*\}/g) || []
+    equal(rules.length, 1, 'exactly one hiding rule')
+    has(rules[0], 'div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]', 'scoped to the settings nav')
+    has(mod.CSS, '[aria-current="true"]', 'the current row stays addressable, so a hidden page can become current')
+  })
+  check('marking writes the id onto the row, and hiding touches only marked rows', () => {
+    // The module closes over `document`, so this group re-evaluates the source with
+    // a fake document that exposes a nav, instead of monkey-patching a global.
+    const { panel, cells } = fakeNav(['Models', 'Agents', 'Settings page'])
+    const document = fakeDocument()
+    document.querySelector = (selector) => (selector === PANEL_SELECTOR ? panel : null)
+    const React = fakeReact()
+    const window = {
+      localStorage: fakeStorage(),
+      addEventListener() {},
+      removeEventListener() {},
+    }
+    let mod = null
+    window.__ModuleLoader__ = { load(entry) { mod = entry.factory(() => React) } }
+    new Function('window', 'document', 'require', source)(window, document, () => React)
+    equal(mod.markNavRows([
+      { id: 'models', order: 10, label: 'Models' },
+      { id: 'agents', order: 20, label: 'Agents' },
+      { id: mod.SECTION_ID, order: 50, label: 'Settings page' },
+    ]), 3, 'all three rows marked')
+    equal(cells[0].getAttribute(mod.NAV_ID_ATTR), 'models', 'first row id')
+    equal(cells[1].getAttribute(mod.NAV_ID_ATTR), 'agents', 'second row id')
+    equal(cells[2].getAttribute(mod.NAV_ID_ATTR), mod.SECTION_ID, 'third row id')
+    equal(mod.applyHiddenRows(['agents']), 1, 'one row hidden')
+    equal(cells[0].getAttribute(mod.HIDDEN_ATTR), null, 'unmarked row untouched')
+    equal(cells[1].getAttribute(mod.HIDDEN_ATTR), '1', 'marked row hidden')
+    equal(cells[2].getAttribute(mod.HIDDEN_ATTR), null, 'our own page never hidden')
+    equal(mod.applyHiddenRows([]), 0, 'clearing removes the marker')
+    equal(cells[1].getAttribute(mod.HIDDEN_ATTR), null, 'marker gone')
+  })
+  check('the nav sync marks rows and applies the stored hidden list on install', () => {
+    // Without this the feature only works after a manual settings change: the
+    // panel is usually mounted long after the module applied.
+    const { panel, cells } = fakeNav(['Models', 'Agents', 'Settings page'])
+    const document = fakeDocument()
+    document.querySelector = (selector) => (selector === PANEL_SELECTOR ? panel : null)
+    const React = fakeReact()
+    const storage = fakeStorage()
+    storage.map.set('dsh.better-setting-page.settings', JSON.stringify({
+      version: 1, fullscreen: false, navCollapsed: false, hidden: ['agents'],
+    }))
+    const window = { localStorage: storage, addEventListener() {}, removeEventListener() {} }
+    let mod = null
+    window.__ModuleLoader__ = { load(entry) { mod = entry.factory(() => React) } }
+    new Function('window', 'document', 'require', source)(window, document, () => React)
+    const { ctx } = fakeSlotsCtx({
+      entries: [
+        { options: { id: 'models', order: 10, label: 'Models' } },
+        { options: { id: 'agents', order: 20, label: 'Agents' } },
+        { options: { id: mod.SECTION_ID, order: 50, label: 'Settings page' } },
+      ],
+    })
+    const dispose = mod.installNavSync(ctx)
+    equal(cells[0].getAttribute(mod.NAV_ID_ATTR), 'models', 'row tagged on install')
+    equal(cells[1].getAttribute(mod.HIDDEN_ATTR), '1', 'stored hidden list applied on install')
+    equal(cells[0].getAttribute(mod.HIDDEN_ATTR), null, 'unhidden row left alone')
+    dispose()
+  })
+  check('a row whose label changed is still matched by position, not skipped', () => {
+    const { panel, cells } = fakeNav(['型号（译名变了）', 'Agents'])
+    const document = fakeDocument()
+    document.querySelector = (selector) => (selector === PANEL_SELECTOR ? panel : null)
+    const React = fakeReact()
+    const window = { localStorage: fakeStorage(), addEventListener() {}, removeEventListener() {} }
+    let mod = null
+    window.__ModuleLoader__ = { load(entry) { mod = entry.factory(() => React) } }
+    new Function('window', 'document', 'require', source)(window, document, () => React)
+    mod.markNavRows([
+      { id: 'models', order: 10, label: 'Models' },
+      { id: 'agents', order: 20, label: 'Agents' },
+    ])
+    equal(cells[0].getAttribute(mod.NAV_ID_ATTR), 'models', 'position fallback')
+    equal(cells[1].getAttribute(mod.NAV_ID_ATTR), 'agents', 'label match still wins when it agrees')
   })
 }
 //#endregion

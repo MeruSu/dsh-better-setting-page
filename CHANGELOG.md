@@ -8,6 +8,41 @@ Two version numbers exist in this project and they are not the same thing:
 - the stored settings `version` — moves only when the shape of the saved record
   changes. This release ships shape `1`.
 
+## 0.1.4 — 2026-11-14
+
+Settings pages can be hidden from the rail without being uninstalled, and every
+hidden page stays reachable from **Settings → Settings page**.
+
+### Added
+
+- A **hidden pages** list on this plugin's own settings page. The list comes from
+  the slot registry (`ctx.slots.entries("settings.section")`), not from the DOM:
+  at cold start the rail is not mounted, so a DOM-driven list would come back
+  empty and overwrite the user's choices with nothing.
+- Per-row **hide / restore**. The row of a hidden page stays in the list and
+  stays clickable; clicking it opens that page. Hiding is not a one-way door, and
+  that is the whole point of the feature.
+- `sanitizeHidden()`: strings only, trimmed, deduplicated, empty string and this
+  page's own id dropped, capped at `HIDDEN_MAX` (64).
+- Opening goes through the shell store (`openSection`) and then polls
+  `aria-current` for ~320 ms (`OPEN_ATTEMPTS` 8 × `OPEN_INTERVAL_MS` 40); when the
+  store call does not land, the nav row is clicked directly. The store only sets
+  `activeId` — it does not guarantee a render.
+- 17 more unit checks (36 → 53), including the exact shape of the single hiding
+  rule, an idempotent checkbox write, and the self-row staying read-only.
+
+### Changed
+
+- The stylesheet now contains exactly **one** `display: none` rule, scoped to
+  `nav [data-bsp-hidden="1"]:not([aria-current="true"])`. It exists because
+  hiding a nav row *is* the feature; the mask, the close button and page bodies
+  remain untouchable, and two unit checks that used to assert "no `display: none`
+  anywhere" now assert "exactly this one rule and nothing else".
+- `:not([aria-current="true"])` keeps the row of the page you are on visible, so
+  the rail still shows where you are after opening a hidden page.
+
+Stored record gains `hidden: []`; `settings.version` stays `1`.
+
 ## 0.1.3 — 2026-11-14
 
 Metadata release: the plugin now has a display name, a description and an icon

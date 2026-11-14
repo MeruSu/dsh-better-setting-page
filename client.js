@@ -13,6 +13,11 @@
  *   3. One `settings.section` page with the two switches and "restore defaults",
  *      because a plugin that can only be undone by clearing localStorage is a
  *      plugin the user cannot turn off.
+ *   4. A "hidden pages" list on that page: any other `settings.section` page can
+ *      be taken out of the nav without being uninstalled, and every hidden page
+ *      stays listed — and reachable — from our own page. Being able to hide a
+ *      page you can then only reach through the page that hid it is the whole
+ *      point; if the list did not keep the entry, hiding would be a one-way door.
  *
  * Header layout: collapse on the left, exit on the right. The shipped close
  * button stays exactly where the host put it and keeps its own click handler and
@@ -51,7 +56,7 @@ window.__ModuleLoader__.load({
 
     /** Locale namespace and the prefix of every DOM attribute we own. */
     const NS = 'better-setting-page'
-    const VERSION = '0.1.3'
+    const VERSION = '0.1.4'
 
     /** localStorage key. Bumping `SETTINGS_VERSION` requires a migration. */
     const STORE_KEY = 'dsh.better-setting-page.settings'
@@ -61,7 +66,12 @@ window.__ModuleLoader__.load({
       version: SETTINGS_VERSION,
       fullscreen: true,
       navCollapsed: false,
+      /** Section ids whose nav row is hidden. Our own id is never allowed in here. */
+      hidden: [],
     }
+
+    /** A runaway list would be a bug, not a preference: cap it. */
+    const HIDDEN_MAX = 64
 
     /** `<html>` attributes: the only state the stylesheet reads. */
     const FULLSCREEN_ATTR = 'data-bsp-fullscreen'
@@ -74,6 +84,18 @@ window.__ModuleLoader__.load({
     const SECTION_ID = 'better-setting-page'
     const SECTION_ORDER = 50
     const ACTION_ID = 'better-setting-page.rail-toggle'
+
+    /**
+     * Attributes we stamp on the host's nav cells. The nav is rendered by the
+     * host, not by us, so the only way to take a row out of it is to mark the row
+     * and let our stylesheet do the rest. Marked by section id, never by index:
+     * the host re-sorts the list whenever a plugin registers.
+     */
+    const NAV_ID_ATTR = 'data-bsp-id'
+    const HIDDEN_ATTR = 'data-bsp-hidden'
+    /** Both directions of the reveal-on-demand window, see `requestOpen`. */
+    const OPEN_ATTEMPTS = 8
+    const OPEN_INTERVAL_MS = 40
 
     //#region stylesheet
     /**
@@ -395,6 +417,66 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > b
   line-height: 1.55;
   color: var(--dsw-alias-label-tertiary);
 }
+
+/* ── 8. Hidden pages: list on our page, row taken out of the host nav ────── */
+/* The one place in this stylesheet that hides something on purpose, and the
+   reason the rule is this narrow. Hiding a nav row is what the feature IS, so
+   the mask-chain prohibition does not apply here; what must stay true is that
+   the property can only ever reach a row *inside* the settings nav that we
+   ourselves marked, never the mask, never a click target, never a page body.
+   The unit test pins that: display:none is allowed in this single rule and
+   nowhere else.
+
+   :not([aria-current="true"]) is deliberate. After opening a hidden page from our
+   list the row comes back for as long as you are on it, so the rail still shows
+   where you are; a hidden page you are not on stays gone. */
+div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current="true"]){
+  display: none;
+}
+.bsp-sections{
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0 0;
+}
+.bsp-sectionRow{
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: .5px solid var(--dsw-alias-border-l2);
+}
+.bsp-sectionRow:last-child{ border-bottom: 0; }
+.bsp-sectionLink{
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+.bsp-sectionLink:hover{ color: var(--dsw-alias-brand-primary); }
+.bsp-sectionLink:focus-visible{
+  outline: var(--dsw-focus-ring-width, 2px) solid
+           var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 2px;
+}
+.bsp-sectionLink[aria-disabled="true"]{
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+.bsp-sectionState{
+  flex: none;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
 `.trim()
     //#endregion
 
@@ -413,6 +495,14 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > b
       'page.resetDone': '已恢复默认',
       'page.saveFailed': '浏览器拒绝保存（localStorage 已满或被禁用），这次改动没有生效。',
       'page.note': '这两项存在本机浏览器的 localStorage（键 dsh.better-setting-page.settings），换端口或清站点数据会丢。不认识的字段会原样保留。',
+      'pages.title': '被屏蔽的设置页',
+      'pages.intro': '取消勾选，那一页就从左侧分类栏消失；这里仍然列着它，也是唯一还能进去的地方。',
+      'pages.empty': '当前只有这一页，没有可屏蔽的对象。',
+      'pages.self': '本页，不能屏蔽自己',
+      'pages.hidden': '已屏蔽',
+      'pages.open': '打开',
+      'pages.openFailed': '打不开这一页：宿主没有响应切换请求。',
+      'pages.resetHint': '「恢复默认」会把屏蔽列表一起清空。',
     }
 
     const EN = {
@@ -429,6 +519,14 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > b
       'page.resetDone': 'Defaults restored',
       'page.saveFailed': 'The browser refused to save this (localStorage full or blocked); the change did not stick.',
       'page.note': 'Both switches live in this browser profile’s localStorage (key dsh.better-setting-page.settings), so a different port or cleared site data resets them. Unknown fields are preserved as-is.',
+      'pages.title': 'Hidden settings pages',
+      'pages.intro': 'Clear a checkbox and that page leaves the section list on the left. It stays listed here, and this is the only way back in.',
+      'pages.empty': 'This is the only page right now, so there is nothing to hide.',
+      'pages.self': 'This page — it cannot hide itself',
+      'pages.hidden': 'Hidden',
+      'pages.open': 'Open',
+      'pages.openFailed': 'Could not open that page: the host never switched to it.',
+      'pages.resetHint': '"Restore defaults" also clears this list.',
     }
     //#endregion
 
@@ -442,6 +540,26 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > b
      * Unknown top-level keys are carried in `unknown` so a downgrade or a future
      * version does not lose data the user (or a newer build) wrote.
      */
+    /**
+     * The hidden-page list is just section ids: strings, no duplicates, never our
+     * own page (hiding the page that owns the list would make the list
+     * unreachable — the one door that must stay open), and capped so a corrupt
+     * value cannot turn into an unbounded allocation.
+     */
+    function sanitizeHidden(raw) {
+      const list = []
+      if (!Array.isArray(raw)) return list
+      for (const item of raw) {
+        if (typeof item !== 'string') continue
+        const id = item.trim()
+        if (id === '' || id === SECTION_ID) continue
+        if (list.indexOf(id) >= 0) continue
+        list.push(id)
+        if (list.length >= HIDDEN_MAX) break
+      }
+      return list
+    }
+
     function sanitizeSettings(raw) {
       const next = { version: SETTINGS_VERSION }
       const unknown = isPlainObject(raw) && isPlainObject(raw.unknown) ? { ...raw.unknown } : {}
@@ -457,6 +575,7 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > b
       next.navCollapsed = isPlainObject(raw) && typeof raw.navCollapsed === 'boolean'
         ? raw.navCollapsed
         : DEFAULTS.navCollapsed
+      next.hidden = sanitizeHidden(isPlainObject(raw) ? raw.hidden : DEFAULTS.hidden)
       next.unknown = unknown
       return next
     }
@@ -520,6 +639,7 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > b
       return writeSettings({
         fullscreen: DEFAULTS.fullscreen,
         navCollapsed: DEFAULTS.navCollapsed,
+        hidden: [],
       })
     }
 
@@ -566,6 +686,236 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > b
         return subscribeSettings(setValue)
       }, [])
       return value
+    }
+    //#endregion
+
+    //#region sections: the host's registry, and the nav rows we mark
+    /**
+     * Read the section list from the slot registry, not from the DOM.
+     * The nav may not be mounted at all (the panel is portal-rendered on open), so
+     * a DOM-driven list would show `[]` on a cold start and then quietly write an
+     * empty list over the user's choices. `entries()` returns a cached array, so
+     * this is cheap and stable enough to run on every sync.
+     */
+    function collectSections(ctx) {
+      const out = []
+      const slots = ctx === null || ctx === undefined ? null : ctx.slots
+      if (slots === null || slots === undefined || typeof slots.entries !== 'function') return out
+      let entries = []
+      try {
+        entries = slots.entries('settings.section') || []
+      } catch (error) {
+        return out
+      }
+      for (const entry of entries) {
+        const options = entry === null || entry === undefined ? null : entry.options
+        if (options === null || options === undefined) continue
+        const id = typeof options.id === 'string' ? options.id : ''
+        if (id === '') continue // a list entry without an id cannot be hidden by id
+        let label = options.label
+        if (typeof label === 'function') {
+          try {
+            label = label()
+          } catch (error) {
+            label = ''
+          }
+        }
+        out.push({
+          id,
+          order: typeof options.order === 'number' ? options.order : 0,
+          label: typeof label === 'string' ? label : '',
+        })
+      }
+      // Same sort the shell uses, so index pairing below stays honest.
+      out.sort((a, b) => a.order - b.order)
+      return out
+    }
+
+    /** The host settings shell, through the store its `sidebar.settings` handle carries. */
+    function shellActionsOf(ctx) {
+      const slots = ctx === null || ctx === undefined ? null : ctx.slots
+      if (slots === null || slots === undefined || typeof slots.entriesOfSlot !== 'function') return null
+      try {
+        const handles = slots.entriesOfSlot('sidebar.settings')
+        const handle = Array.isArray(handles) ? handles[0] : null
+        if (handle === null || handle === undefined) return null
+        const store = handle.store
+        if (store === null || store === undefined || typeof store.create !== 'function') return null
+        const instance = store.create()
+        const actions = instance === null || instance === undefined ? null : instance.actions
+        return actions === null || actions === undefined ? null : actions
+      } catch (error) {
+        return null
+      }
+    }
+
+    function navElement() {
+      if (typeof document === 'undefined' || document === null) return null
+      if (typeof document.querySelector !== 'function') return null
+      const panel = document.querySelector(PANEL)
+      if (panel === null) return null
+      return typeof panel.querySelector === 'function' ? panel.querySelector(':scope > nav') : null
+    }
+
+    /**
+     * The host renders the nav from the same registry, but it writes no id onto the
+     * row (only the label text and the icon), so the only stable handle we can put
+     * on a row ourselves is the id we know is at that index. Labels are used first
+     * because they survive a reorder; the index pairing is the fallback, and both
+     * sides sort by `order`, so they agree.
+     */
+    function markNavRows(sections) {
+      const nav = navElement()
+      if (nav === null || typeof nav.querySelectorAll !== 'function') return 0
+      const cells = nav.querySelectorAll('button')
+      if (cells === null || typeof cells.length !== 'number') return 0
+      const byLabel = new Map()
+      for (const section of sections) {
+        if (section.label !== '' && !byLabel.has(section.label)) byLabel.set(section.label, section.id)
+      }
+      let marked = 0
+      for (let index = 0; index < cells.length; index += 1) {
+        const cell = cells[index]
+        if (cell === null || cell === undefined || typeof cell.setAttribute !== 'function') continue
+        const text = typeof cell.textContent === 'string' ? cell.textContent.trim() : ''
+        const byText = text === '' ? undefined : byLabel.get(text)
+        const fallback = index < sections.length ? sections[index].id : ''
+        const id = byText !== undefined ? byText : fallback
+        if (id === '') continue
+        cell.setAttribute(NAV_ID_ATTR, id)
+        marked += 1
+      }
+      return marked
+    }
+
+    /** Hide exactly the rows marked with a hidden id; leave every other node alone. */
+    function applyHiddenRows(hidden) {
+      const nav = navElement()
+      if (nav === null || typeof nav.querySelectorAll !== 'function') return 0
+      const cells = nav.querySelectorAll('[' + NAV_ID_ATTR + ']')
+      if (cells === null || typeof cells.length !== 'number') return 0
+      const hide = new Set(Array.isArray(hidden) ? hidden : [])
+      let hiddenCount = 0
+      for (const cell of cells) {
+        if (cell === null || cell === undefined || typeof cell.getAttribute !== 'function') continue
+        const id = cell.getAttribute(NAV_ID_ATTR)
+        if (id !== null && id !== '' && hide.has(id)) {
+          cell.setAttribute(HIDDEN_ATTR, '1')
+          hiddenCount += 1
+        } else if (typeof cell.removeAttribute === 'function') {
+          cell.removeAttribute(HIDDEN_ATTR)
+        }
+      }
+      return hiddenCount
+    }
+
+    /** Which section the shell currently shows, read from the row the host marks current. */
+    function activeSectionId() {
+      const nav = navElement()
+      if (nav === null || typeof nav.querySelector !== 'function') return ''
+      let current = null
+      try {
+        current = nav.querySelector('button[aria-current="true"]')
+      } catch (error) {
+        current = null
+      }
+      if (current === null || typeof current.getAttribute !== 'function') return ''
+      const id = current.getAttribute(NAV_ID_ATTR)
+      return typeof id === 'string' ? id : ''
+    }
+
+    /**
+     * Ask the shell to show a section, then check that it actually did.
+     * `openSection(state, id)` only assigns `activeId`; it does not guarantee a
+     * render. Navigating a hidden page is the one feature that depends on this
+     * working, so a fire-and-forget call is not enough: poll for the row to become
+     * current and fall back to clicking the row (which also un-hides it first,
+     * since a hidden row cannot be clicked).
+     */
+    function openSection(ctx, id) {
+      const sid = typeof id === 'string' ? id.trim() : ''
+      if (sid === '' || sid === SECTION_ID) return false
+      const actions = shellActionsOf(ctx)
+      if (actions !== null) {
+        if (typeof actions.openSection === 'function') {
+          try {
+            actions.openSection(sid)
+          } catch (error) {
+            /* fall through to the DOM fallback */
+          }
+        } else if (typeof actions.select === 'function') {
+          try {
+            actions.select(sid)
+          } catch (error) {
+            /* fall through to the DOM fallback */
+          }
+        }
+      }
+      let attempts = 0
+      const step = () => {
+        if (activeSectionId() === sid) return
+        attempts += 1
+        if (attempts > OPEN_ATTEMPTS) {
+          clickNavRow(sid)
+          return
+        }
+        setTimeout(step, OPEN_INTERVAL_MS)
+      }
+      setTimeout(step, OPEN_INTERVAL_MS)
+      return true
+    }
+
+    /** Last resort: click the row. Un-hide it first or the browser refuses the hit. */
+    function clickNavRow(id) {
+      const nav = navElement()
+      if (nav === null || typeof nav.querySelectorAll !== 'function') return false
+      const cells = nav.querySelectorAll('[' + NAV_ID_ATTR + ']')
+      if (cells === null) return false
+      for (const cell of cells) {
+        if (typeof cell.getAttribute !== 'function') continue
+        if (cell.getAttribute(NAV_ID_ATTR) !== id) continue
+        if (typeof cell.removeAttribute === 'function') cell.removeAttribute(HIDDEN_ATTR)
+        if (typeof cell.click === 'function') cell.click()
+        return true
+      }
+      return false
+    }
+
+    /**
+     * Keep the nav in step with the settings, without the user having to visit our
+     * page first: run once now, then on every settings change, every registry
+     * change, and whenever the panel is portal-mounted into the body.
+     */
+    function installNavSync(ctx) {
+      let disposed = false
+      const sync = () => {
+        if (disposed) return
+        markNavRows(collectSections(ctx))
+        applyHiddenRows(currentSettings().hidden)
+      }
+      sync()
+      const offSettings = subscribeSettings(sync)
+      let offSlots = () => {}
+      if (typeof ctx.slots.subscribe === 'function') {
+        try {
+          const disposer = ctx.slots.subscribe('settings.section', sync)
+          if (typeof disposer === 'function') offSlots = disposer
+        } catch (error) {
+          offSlots = () => {}
+        }
+      }
+      let observer = null
+      if (typeof MutationObserver === 'function' && typeof document !== 'undefined'
+        && document !== null && document.body !== undefined && document.body !== null) {
+        observer = new MutationObserver(sync)
+        observer.observe(document.body, { childList: true })
+      }
+      return () => {
+        disposed = true
+        offSettings()
+        offSlots()
+        if (observer !== null) observer.disconnect()
+      }
     }
     //#endregion
 
@@ -702,6 +1052,61 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > b
         }),
       ])
 
+      /**
+       * One row per settings page in the registry, including the hidden ones —
+       * that is the whole point: the list is the only door back into a page whose
+       * nav row is gone. Our own page is listed too, but read-only, so the list
+       * explains why it can never be in it.
+       */
+      const sectionRows = () => {
+        const sections = collectSections(props.ctx)
+        const hidden = settings.hidden
+        if (sections.length === 0) {
+          return [h('p', { key: 'empty', className: 'bsp-sub' }, t('pages.empty'))]
+        }
+        return sections.map((section) => {
+          const self = section.id === SECTION_ID
+          const isHidden = !self && hidden.indexOf(section.id) !== -1
+          const name = section.label === '' ? section.id : section.label
+          return h('div', {
+            key: section.id,
+            className: 'bsp-sectionRow',
+            'data-bsp-section': section.id,
+            'data-bsp-section-hidden': isHidden ? '1' : '0',
+          }, [
+            h('button', {
+              key: 'open',
+              type: 'button',
+              className: 'bsp-sectionLink',
+              'aria-disabled': self ? 'true' : undefined,
+              title: self ? t('pages.self') : name,
+              onClick: () => {
+                if (self) return
+                const ok = openSection(props.ctx, section.id)
+                if (!ok) setNotice(t('pages.openFailed'))
+              },
+            }, name),
+            h('span', { key: 'state', className: 'bsp-sectionState' },
+              self ? t('pages.self') : (isHidden ? t('pages.hidden') : '')),
+            self ? null : h('input', {
+              key: 'hide',
+              type: 'checkbox',
+              className: 'bsp-check',
+              checked: isHidden,
+              'aria-label': name,
+              onChange: (event) => {
+                // Read the live list, not the one this render captured: two fast
+                // toggles can land before React re-renders, and the second must not
+                // resurrect the first one's id.
+                const next = readSettings().hidden.filter((item) => item !== section.id)
+                if (event.target.checked) next.push(section.id)
+                write({ hidden: next })
+              },
+            }),
+          ])
+        })
+      }
+
       return h('div', { className: 'bsp-page' }, [
         h('div', { key: 'head', className: 'bsp-head' }, [
           h('h2', { key: 'title', className: 'bsp-title' }, t('page.title')),
@@ -711,6 +1116,11 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > b
           (next) => write({ fullscreen: next })),
         row('page.navCollapsed', 'page.navCollapsedHint', settings.navCollapsed === true,
           (next) => write({ navCollapsed: next })),
+        h('div', { key: 'sections', className: 'bsp-sections' }, [
+          h('h3', { key: 'title', className: 'bsp-rowLabel' }, t('pages.title')),
+          h('p', { key: 'intro', className: 'bsp-sub' }, t('pages.intro')),
+          ...sectionRows(),
+        ]),
         h('div', { key: 'actions', className: 'bsp-actions' }, [
           h('button', {
             key: 'reset',
@@ -749,6 +1159,7 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > b
 
       ctx.effect(() => subscribeSettings(applyToDocument), `${NS}: attributes`)
       ctx.effect(() => watchStorage(), `${NS}: storage`)
+      ctx.effect(() => installNavSync(ctx), `${NS}: nav sync`)
 
       ctx.slots.inject('settings.action', () => ctx.slots.register({
         name: 'settings.action',
@@ -763,7 +1174,7 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > b
         order: SECTION_ORDER,
         label: () => t('section.nav'),
         locale: NS,
-      }, (props) => h(SettingsPage, { close: props.close, t })))
+      }, (props) => h(SettingsPage, { close: props.close, t, ctx })))
 
       ctx.slots.inject('settings.section.icon', () => ctx.slots.register({
         name: 'settings.section.icon',
@@ -793,6 +1204,17 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > b
       ZH,
       EN,
       sanitizeSettings,
+      sanitizeHidden,
+      collectSections,
+      markNavRows,
+      applyHiddenRows,
+      activeSectionId,
+      openSection,
+      shellActionsOf,
+      installNavSync,
+      HIDDEN_MAX,
+      NAV_ID_ATTR,
+      HIDDEN_ATTR,
       readSettings,
       writeSettings,
       resetSettings,

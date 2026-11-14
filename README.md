@@ -25,7 +25,7 @@ Restart that profile's window afterwards: the browser caches the old bundle.
 | Full-window page | The dialog fills the window; the panel radius and drop shadow go away. On desktop the title-bar height is kept as padding, and that strip still drags the window. |
 | Collapsible rail | A chevron at the header's **left edge** collapses the section list to 56px of icons. Section names stay in the accessibility tree, so screen readers and `Tab` still announce them. |
 | Remembered in this browser | Both switches live in this browser profile's `localStorage`, key `dsh.better-setting-page.settings`. |
-| Its own settings page | Under **Settings → Settings page** you get two switches and **Restore defaults**. Without that page, a user who dislikes full screen would have to uninstall the plugin. |
+| Its own settings page | Under **Settings → Settings page** you get two switches, a **hidden pages** list and **Restore defaults**. Without that page, a user who dislikes full screen would have to uninstall the plugin. |
 
 Full screen is **on by default**; the rail is **expanded by default**. Both are
 switchable, and both choices survive a restart.
@@ -50,9 +50,12 @@ Everything hangs off two attributes this plugin owns on `<html>`:
 
     <html data-bsp-fullscreen="on" data-bsp-nav="collapsed">
 
-One stylesheet reads them. No `MutationObserver`, no re-render on the host's
-React tree, no writes to any host store. The host may mount, unmount and
-remount the settings panel at will; the state is already on the root element.
+One stylesheet reads them. No re-render on the host's React tree, and the only
+`MutationObserver` watches `document.body` for the panel being portalled in — it
+tags nav rows with a data attribute and never rewrites host markup. No writes to
+any host store except `openSection`, which is how a page is opened anyway. The
+host may mount, unmount and remount the panel at will: the two switches are
+already on the root element, and the row tags are re-applied on each mount.
 
 Three things about the shipped DOM are worth knowing before you write a similar
 patch.
@@ -87,16 +90,44 @@ attribute and already more specific (0,1,1) than the shipped module classes
 |---|---|---|
 | `fullscreen` | `true` | Fill the window instead of 800px. |
 | `navCollapsed` | `false` | Collapse the section rail to icons. |
+| `hidden` | `[]` | Section ids taken out of the rail. See [Hidden pages](#hidden-pages). |
 
 Stored shape:
 
 ```json
-{ "version": 1, "fullscreen": true, "navCollapsed": false, "unknown": {} }
+{ "version": 1, "fullscreen": true, "navCollapsed": false, "hidden": [], "unknown": {} }
 ```
 
 Keys this version does not recognise are carried in `unknown` and written back,
 so a downgrade or a newer build does not lose data. A malformed record falls
 back to defaults instead of throwing.
+
+## Hidden pages
+
+Every plugin that registers a `settings.section` adds a row to the rail, and a
+few of those rows you may never touch. This page can take any of them out of the
+way without uninstalling anything — and the same page keeps them reachable.
+
+The list is built from the slot registry (`ctx.slots.entries("settings.section")`),
+not from the DOM. At cold start the rail is not mounted, so a DOM-driven list
+would come back empty and overwrite your choices with nothing.
+
+- **All pages are listed, including the hidden ones.** A hidden page stays
+  clickable here and opens normally. That is the point: hiding something you can
+  then only reach through the thing that hid it is still reachable, so hiding is
+  never a one-way door.
+- **This page cannot hide itself.** It has no checkbox, and its own id never
+  survives in `hidden` even if something writes it there.
+- **A hidden row comes back while you are on it.** The rule is
+  `nav [data-bsp-hidden="1"]:not([aria-current="true"])`, so after you open a
+  hidden page from this list the rail still shows where you are.
+- **Opening is verified, not fired and forgotten.** The click goes through the
+  shell's own store (`openSection`) and then polls `aria-current` for about
+  320 ms; if the store call does not land, the row is clicked directly. The store
+  only sets `activeId` — it does not guarantee a render.
+
+`hidden` holds section ids: strings, trimmed, emptied of duplicates, never the
+empty string, never this page's own id, capped at 64 entries.
 
 ## Limits
 
@@ -113,27 +144,53 @@ back to defaults instead of throwing.
   panel into a full-screen sheet on its own; collapsing to 56px there would
   leave nothing, so the collapse rule is behind `@media (min-width: 768px)`.
 - **Settings are per origin.** A different port is a different profile: your two
-  switches reset there.
+  switches and the hidden list reset there.
+- **Hiding is a rail change, not an uninstall.** A hidden page still exists, still
+  registers, and still runs; only its row is gone. Nothing about that plugin is
+  disabled, so do not use this to "turn off" a plugin you do not trust.
 
 ## Files
 
     client.js            browser half: stylesheet, rail toggle, settings page
     index.js             host half: exists so the bundle resolves, injects nothing
     cordis.patch.yml     bundle patch
-    test/settings-page.test.mjs   33 checks, no dependencies
+    test/settings-page.test.mjs   53 checks, no dependencies
 
 ## Tests
 
     node --check client.js
     node --check index.js
-    node test/settings-page.test.mjs     # → PASS — 33 groups
+    node test/settings-page.test.mjs     # → PASS — 53 groups
 
 The test executes the real `client.js` with a stubbed `window.__ModuleLoader__`
-and asserts on the exported strings and store, including two regression traps:
-one fails if the header selector is ever "simplified" back to a direct child,
-the other fails if the full-screen rules stop being gated on this plugin's own
-attribute. Whether the page really fills the window is a machine check, not a
-unit test.
+and asserts on the exported strings and store, including four regression traps:
+one fails if the header selector is ever "simplified" back to a direct child, one
+fails if the full-screen rules stop being gated on this plugin's own attribute,
+one fails if the hide rule stops being scoped to rows we marked ourselves, and
+one fails if the nav sync stops applying the stored hidden list at install time
+(without that, hiding would only take effect after a manual settings change).
+Whether the page really fills the window is a machine check, not a unit test.
+
+The count is a floor, not a badge: each mutation was verified to turn the suite
+red before being reverted — dropping `[data-bsp-hidden]` from the hide rule (3
+checks), removing the self-exemption in `openSection` (1), removing the
+`applyHiddenRows` call from `installNavSync` (1), and letting `sanitizeHidden`
+keep this page's own id (2).
+
+The unit tests use a fake document, which cannot prove that the selectors,
+`querySelectorAll` and the `MutationObserver` work. So the real `client.js` is
+also loaded in Chrome against a DOM copied from the host's panel, with a fake
+ctx whose section slot returns eight entries, the panel absent at `apply()` time
+and portalled in afterwards (the real cold-start order). Measured there:
+
+| Step | Result |
+|---|---|
+| `apply()` while the panel is absent | nothing to tag, no throw |
+| Panel portalled in | observer tags all 8 rows, hidden list re-applied |
+| Hide `models` + `plugins` | those two rows `display: none`, other six untouched |
+| Write `hidden: ['models', 'better-setting-page']` | stored as `["models"]` — own id dropped |
+| `openSection('models')` | store receives `openSection:models`, that row becomes `aria-current` and **reappears** (`display: flex`) |
+| Panel torn down and mounted again | observer re-tags and re-hides without a settings write |
 
 On the web runtime (Harness `0.2.2-rc.1`, 1600×950) that machine check was run
 and three of four items passed: the panel rect equals the viewport
