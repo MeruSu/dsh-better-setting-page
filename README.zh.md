@@ -38,6 +38,11 @@
 分类栏收起是纯 CSS：分类名只是视觉隐藏，没有从文档里删，所以 `Tab` 仍然逐个聚焦、读屏
 仍然念得出来。没有「悬停临时展开」：只有那个箭头会切换状态，别的都不动。
 
+**如果同时装了 [UI Controller](https://github.com/MeruSu/dsh-ui-controller) 插件，
+本插件就让位。** 那种组合下分类栏归它管（展开 / 图标栏 / 隐藏三态），本插件不再写自己的
+`data-bsp-nav` 属性、折叠样式也让给 UIC、箭头不再渲染、「默认收起左侧分类栏」开关置灰并给
+说明文案。单独安装时，本插件行为与之前完全一致。
+
 ## 它怎么做到的
 
 全部状态是这个插件挂在 `<html>` 上的两个属性：
@@ -133,13 +138,13 @@ backdrop-filter: none`），盒子和命中区原样留着。
     client.js           浏览器半边：样式表、分类栏开关、设置页
     index.js            host 半边：只为让 bundle 解析得到，不注入任何东西
     cordis.patch.yml    bundle patch
-    test/settings-page.test.mjs   53 条断言，零依赖
+    test/settings-page.test.mjs   56 条断言，零依赖
 
 ## 测试
 
     node --check client.js
     node --check index.js
-    node test/settings-page.test.mjs     # → PASS — 53 groups
+    node test/settings-page.test.mjs     # → PASS — 56 groups
 
 测试用桩掉的 `window.__ModuleLoader__` 执行真的 `client.js`，然后对导出的字符串和
 store 下断言，其中埋了四条**回归陷阱**：一条在页头选择器被「顺手简化」回直接子级时

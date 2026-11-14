@@ -561,6 +561,40 @@ function load(options = {}) {
     equal(seen.length, 1, 'subscriber notified')
     equal(document.attrs.get(fresh.FULLSCREEN_ATTR), 'off', 'attribute followed the event')
   })
+  check('uicPresenceOf is true only when the UI Controller registers a section', () => {
+    const { mod } = load()
+    equal(mod.UIC_SECTION_ID, 'ui-controller', 'the UIC section id is the contract')
+    equal(mod.uicPresenceOf(null), false, 'no ctx is absent')
+    equal(mod.uicPresenceOf({}), false, 'a ctx without slots is absent')
+    equal(mod.uicPresenceOf({ slots: {} }), false, 'slots without entries() is absent')
+    const slotsWith = (entries) => ({ slots: { entries: () => entries } })
+    equal(mod.uicPresenceOf(slotsWith([])), false, 'empty registry is absent')
+    equal(mod.uicPresenceOf(slotsWith([{ options: { id: 'models' } }])), false, 'other plugins do not count')
+    equal(mod.uicPresenceOf(slotsWith([
+      { options: { id: 'models' } },
+      { options: { id: 'ui-controller' } },
+    ])), true, 'the UIC entry means present')
+    const throwing = { slots: { entries() { throw new Error('registry not ready') } } }
+    equal(mod.uicPresenceOf(throwing), false, 'a throwing registry reads as absent')
+  })
+  check('when the UIC owns the rail, data-bsp-nav is neither written nor kept', () => {
+    const { mod, document } = load({
+      entries: [
+        { options: { id: 'ui-controller', order: 40, label: () => 'UI' } },
+        { options: { id: 'better-setting-page', order: 50, label: () => 'section.nav' } },
+      ],
+    })
+    equal(document.attrs.has(mod.FULLSCREEN_ATTR), true, 'fullscreen still applied under the UIC')
+    equal(document.attrs.has(mod.NAV_ATTR), false, 'no nav attribute when the UIC owns the rail')
+    mod.writeSettings({ navCollapsed: true })
+    equal(document.attrs.has(mod.NAV_ATTR), false, 'still no nav attribute after a collapse write')
+  })
+  check('without the UIC, data-bsp-nav is still written as before', () => {
+    const { mod, document } = load()
+    equal(document.attrs.get(mod.NAV_ATTR), 'expanded', 'expanded written when the UIC is absent')
+    mod.writeSettings({ navCollapsed: true })
+    equal(document.attrs.get(mod.NAV_ATTR), 'collapsed', 'collapsed written when the UIC is absent')
+  })
 }
 //#endregion
 

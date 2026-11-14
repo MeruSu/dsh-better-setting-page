@@ -8,6 +8,18 @@ Two version numbers exist in this project and they are not the same thing:
 - the stored settings `version` — moves only when the shape of the saved record
   changes. This release ships shape `1`.
 
+## 0.1.5 — 2026-11-14
+
+The rail now yields to the [UI Controller](https://github.com/MeruSu/dsh-ui-controller) plugin. With the UIC installed, two plugins were fighting over the same `grid-template-columns` declaration: the UIC deliberately leaves `expanded` to the host's own width, while this plugin's collapsed rule kept winning at 56px — so "expanded" rendered as a 56px rail.
+
+### Changed
+- `uicPresenceOf(ctx)` now reads the section registry (`settings.section` entries containing the `ui-controller` id), not the mounted panel — correct before the dialog has ever opened.
+- While the UIC is present, this plugin no longer writes `data-bsp-nav`, its collapse styles are guarded off the panel (`:not([data-uic-nav])`), the header chevron is not rendered, and the "Collapse the section list" switch is disabled with a "managed by the UIC" hint.
+- Without the UIC, behaviour is unchanged.
+
+### Notes
+- Stored record shape is untouched; `settings.version` stays `1`.
+
 ## 0.1.4 — 2026-11-14
 
 Settings pages can be hidden from the rail without being uninstalled, and every

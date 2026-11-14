@@ -44,6 +44,13 @@ The rail is collapsed by CSS only; the section names are visually hidden, not
 removed, so `Tab` still lands on each entry and a screen reader still announces
 it. There is no hover-to-expand: the arrow toggles, nothing else moves.
 
+**If the [UI Controller](https://github.com/MeruSu/dsh-ui-controller) plugin is
+also installed, this one stands down.** The UIC owns the rail in that setup
+(expanded / icon rail / hidden), so this plugin stops writing its own
+`data-bsp-nav` attribute, its collapse styles yield to the UIC's, the chevron
+is not rendered and the "Collapse the section list" switch is disabled with an
+explanatory hint. Installed alone, this plugin behaves exactly as before.
+
 ## How it works
 
 Everything hangs off two attributes this plugin owns on `<html>`:
@@ -154,13 +161,13 @@ empty string, never this page's own id, capped at 64 entries.
     client.js            browser half: stylesheet, rail toggle, settings page
     index.js             host half: exists so the bundle resolves, injects nothing
     cordis.patch.yml     bundle patch
-    test/settings-page.test.mjs   53 checks, no dependencies
+    test/settings-page.test.mjs   56 checks, no dependencies
 
 ## Tests
 
     node --check client.js
     node --check index.js
-    node test/settings-page.test.mjs     # → PASS — 53 groups
+    node test/settings-page.test.mjs     # → PASS — 56 groups
 
 The test executes the real `client.js` with a stubbed `window.__ModuleLoader__`
 and asserts on the exported strings and store, including four regression traps:
