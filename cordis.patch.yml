@@ -1,4 +1,8 @@
-# Placeholder bundle patch: activating the bundle loads the two halves above.
+# Bundle patch: one row for dsh-better-setting-page.
+# The client half (dsh.client) owns the whole feature: one stylesheet that turns
+# the settings dialog into a full-window page, an action button that collapses
+# the navigation rail, and a small settings section holding the two switches.
+# The host half injects nothing; it exists so this patch resolves.
 - insert:
     - id: better-setting-page
       name: 'dsh-better-setting-page'
