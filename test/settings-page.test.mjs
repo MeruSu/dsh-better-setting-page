@@ -543,6 +543,42 @@ function load(options = {}) {
 }
 //#endregion
 
+//#region 12. display metadata (locale + icon)
+/**
+ * The host reads plugin display name/icon without evaluating any JavaScript:
+ * `pluginPackages.metaOf()` reads `locale/<lang>.json` for `meta.title` and
+ * `meta.description`, and `package.json` `icon` (or the exported `./icon`) for
+ * the artwork. Both must be reachable through `exports`, or the packaged copy
+ * will not have them and the plugin list falls back to the package name.
+ */
+{
+  const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8'))
+
+  check('package.json declares the display metadata the host reads', () => {
+    equal(pkg.icon, './icon.svg', 'manifest icon')
+    truthy(pkg.exports, 'exports present')
+    equal(pkg.exports['./icon'], './icon.svg', 'exported icon')
+    truthy(pkg.exports['./locale/*.json'], 'exported locale glob')
+  })
+
+  check('the icon ships inside the npm package', () => {
+    truthy(pkg.files.includes('icon.svg'), 'files includes icon.svg')
+    truthy(pkg.files.includes('locale'), 'files includes locale/')
+    const svg = readFileSync(join(here, '..', 'icon.svg'), 'utf8')
+    truthy(svg.startsWith('<svg'), 'icon.svg is an SVG')
+    truthy(Buffer.byteLength(svg) <= 256 * 1024, 'icon stays under the hosts 256 KiB cap')
+  })
+
+  check('locale files carry a title and a description in both languages', () => {
+    for (const lang of ['en', 'zh']) {
+      const meta = JSON.parse(readFileSync(join(here, '..', 'locale', lang + '.json'), 'utf8')).meta
+      truthy(meta && typeof meta.title === 'string' && meta.title.trim(), lang + ' title')
+      truthy(meta && typeof meta.description === 'string' && meta.description.trim(), lang + ' description')
+    }
+  })
+}
+//#endregion
+
 console.log('')
 if (failures.length > 0) {
   console.log(`FAIL — ${failures.length} of ${groups} checks failed`)

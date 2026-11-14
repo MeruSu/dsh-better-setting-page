@@ -8,6 +8,24 @@ Two version numbers exist in this project and they are not the same thing:
 - the stored settings `version` — moves only when the shape of the saved record
   changes. This release ships shape `1`.
 
+## 0.1.3 — 2026-11-14
+
+Metadata release: the plugin now has a display name, a description and an icon
+in the host's plugin list, instead of showing the bare package name.
+
+### Added
+
+- `locale/en.json` and `locale/zh.json` with `meta.title` / `meta.description`,
+  and `icon.svg` declared as `package.json` `icon`. The host reads these without
+  evaluating any JavaScript (`pluginPackages.metaOf`), so all three have to be
+  reachable through `exports` and included in `files` — otherwise the published
+  tarball lacks them and the list falls back to the package name.
+- Three unit checks for exactly that: the manifest declares them, the icon is
+  packaged and under the host's 256 KiB cap, and both languages carry a title and
+  a description.
+
+No code and no stored field changed; `settings.version` stays `1`.
+
 ## 0.1.2 — 2026-11-14
 
 Layout-only release. No stored field changed, so `settings.version` stays `1`

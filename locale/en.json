@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Better Setting Page",
+    "description": "A full-window settings page: the panel fills the window, the left rail collapses to a column of icons, and the top-right X becomes a return arrow. Ships one page with the two switches."
+  }
+}
