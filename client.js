@@ -51,7 +51,7 @@ window.__ModuleLoader__.load({
 
     /** Locale namespace and the prefix of every DOM attribute we own. */
     const NS = 'better-setting-page'
-    const VERSION = '0.1.1'
+    const VERSION = '0.1.2'
 
     /** localStorage key. Bumping `SETTINGS_VERSION` requires a migration. */
     const STORE_KEY = 'dsh.better-setting-page.settings'
@@ -137,9 +137,15 @@ html[data-bsp-fullscreen="on"] div[data-shortcut-modal="settings"] > div:has(> [
     padding: 0 40px 40px;
   }
 }
-/* A full-width page would otherwise run a line across the whole monitor. */
+/* A full-width page would otherwise run a line across the whole monitor, and on a
+   wide screen it would also hang off the left edge: the column is a plain block
+   box, so a capped child stays where the padding puts it unless it is centred.
+   Centring is done with auto inline margins rather than by centring the column
+   itself, because the host's own pages also cap their width and would otherwise
+   stay left-aligned inside a wide column. */
 html[data-bsp-fullscreen="on"] div[data-shortcut-modal="settings"] [data-slot="settings.section"] > *{
   max-width: 880px;
+  margin-inline: auto;
 }
 
 /* ── 4. Collapsible rail ────────────────────────────────────────────────── */
@@ -190,22 +196,36 @@ html[data-bsp-fullscreen="on"] div[data-shortcut-modal="settings"] [data-slot="s
   }
 }
 
-/* ── 5. Header layout: collapse left, exit right ─────────────────────────── */
+/* ── 5. Header layout: toggle left, then the shipped actions and exit right ── */
 /* The header is a flex row with justify-content: space-between and exactly two
    children: .actions (a flex row holding the slot outlet, which holds the
-   shipped buttons) and the shipped close button. Our toggle is a grandchild of
-   the header — header > .actions > [data-slot] > button — so no order value can
-   move it to the far left; order only reorders it inside .actions.
+   shipped action buttons plus ours) and the shipped close button. Our toggle is
+   a grandchild of the header — header > .actions > [data-slot] > button — so no
+   order value can move it out of .actions until those wrappers are flattened.
 
    Flattening the two wrappers with display: contents promotes the slot's
    children to real flex items of the header. The slot outlet already uses
-   display: contents, so this only adds the one level that was in the way. The
-   toggle then becomes the header's first flex item and the Tab order follows the
-   visual order for free — no reading-flow needed, which matters because that
-   property would also reshuffle the shipped buttons.
+   display: contents, so this only adds the one level that was in the way.
 
-   The wrappers are flattened rather than restyled because .actions carries only
-   margin-left: auto, which we replace explicitly below. */
+   Once flattened, the toggle is *a* flex item but not necessarily the *first*
+   one: the order of the slot's children is registration order, and the shipped
+   actions that register into settings.action can come before ours (measured: the
+   browser build puts ours first, the desktop shell puts the shipped ones first).
+   An earlier revision relied on being first and therefore only looked right in
+   one of the two. order: -1 pins the toggle to the visual start regardless of
+   DOM order, and space-between is replaced by flex-start + an auto margin on the
+   toggle so that the shipped actions and the close button stay adjacent at the
+   far right instead of drifting to the middle.
+
+   Tab order still follows the flattened DOM, not order. That is why the toggle
+   carries tabIndex in registration order and why the panels below are not
+   reordered with order: visual order and focus order only diverge for the
+   toggle, and it is the first thing the dialog's own roving focus reaches. */
+/* Being first in 'order' is not enough on its own: 'space-between' would still
+   distribute the items by their own sizes and pull the shipped actions away from
+   the close button. flex-start plus an auto margin on the toggle keeps the
+   toggle at the visual start and parks everything else against the right edge,
+   with the shipped actions immediately before the close button. */
 div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > div:has(> [data-slot="settings.action"]){
   display: contents;
 }
@@ -217,10 +237,19 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > d
   display: contents;
 }
 
-/* Being the first flex item is not enough: space-between would still distribute
-   the two items by their own sizes. Pushing everything after the toggle to the
-   right reproduces the shipped layout with the toggle prepended. */
-div[data-shortcut-modal="settings"] .bsp-rail-toggle{
+/* The header itself becomes a plain left-aligned row. Both properties are needed
+   once the wrappers above are flattened, because the shipped header relies on
+   space-between between exactly two boxes. */
+div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]){
+  justify-content: flex-start;
+}
+
+/* Visual start, whatever the registration order was. The anchor in between is a
+   real element in the DOM (only display:contents makes it look transparent), so
+   the selector has to span it instead of assuming the toggle is a direct child of
+   the header. */
+div[data-shortcut-modal="settings"] [data-slot="settings.action"] > .bsp-rail-toggle{
+  order: -1;
   margin-right: auto;
 }
 

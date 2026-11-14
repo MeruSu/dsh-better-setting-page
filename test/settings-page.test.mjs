@@ -204,9 +204,10 @@ function load(options = {}) {
 {
   const { mod } = load()
   check('exports apply and inject, and injects only slots + locale', () => {
+    const SRC_VERSION = /const VERSION = '([^']+)'/.exec(source)[1]
     equal(typeof mod.apply, 'function', 'apply')
     equal(JSON.stringify(mod.inject), JSON.stringify(['slots', 'locale']), 'inject')
-    equal(mod.VERSION, '0.1.1', 'version')
+    equal(mod.VERSION, SRC_VERSION, 'version')
   })
   check('locale dictionaries ship zh and en with identical key sets', () => {
     const zh = Object.keys(mod.ZH).sort()
@@ -327,12 +328,15 @@ function load(options = {}) {
     const flattenOutlet = /div\[data-shortcut-modal="settings"\] > div:has\(\[data-slot="settings\.action"\]\) > div:has\(> \[data-slot="settings\.action"\]\) > \[data-slot="settings\.action"\]\{([^}]*)\}/.exec(css)
     truthy(flattenOutlet, 'restates the outlet flattening')
     has(flattenOutlet[1], 'display: contents', 'the outlet must not generate a box either')
-    // With both boxes gone the toggle is the header's first flex item; the auto
-    // margin then pushes every shipped button to the right.
-    const toggle = /div\[data-shortcut-modal="settings"\] \.bsp-rail-toggle\{([^}]*)\}/.exec(css)
+    // With both boxes gone the toggle is a flex item of the header. It is still
+    // not necessarily the *first* one: registration order differs between builds
+    // (browser puts ours first, the desktop shell puts the shipped actions
+    // first), so the position must come from `order`, and the auto margin then
+    // pushes every shipped button to the right of it.
+    const toggle = /div\[data-shortcut-modal="settings"\] \[data-slot="settings\.action"\] > \.bsp-rail-toggle\{([^}]*)\}/.exec(css)
     truthy(toggle, 'toggle layout rule present')
+    has(toggle[1], 'order: -1', 'toggle claims the visual start regardless of registration order')
     has(toggle[1], 'margin-right: auto', 'toggle sits left, shipped buttons sit right')
-    absent(toggle[1], 'order', 'order cannot move a grandchild out of its flex parent')
   })
   check('the shipped close button is restyled, never moved or replaced', () => {
     const close = 'div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > button:last-of-type'

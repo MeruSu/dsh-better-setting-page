@@ -8,6 +8,36 @@ Two version numbers exist in this project and they are not the same thing:
 - the stored settings `version` — moves only when the shape of the saved record
   changes. This release ships shape `1`.
 
+## 0.1.2 — 2026-11-14
+
+Layout-only release. No stored field changed, so `settings.version` stays `1`
+and there is no migration.
+
+### Fixed
+
+- **The top-left toggle now stays top-left in every shell.** 0.1.1 flattened
+  the two wrapper boxes so the toggle became a flex item of the header, but it
+  still relied on being *registered* first. The browser build registers it
+  first; the desktop shell registers the shipped actions first, so there the
+  toggle landed to the *right* of "open config file". The toggle now carries
+  `order: -1`, which pins it to the visual start regardless of DOM order. This
+  was verified by swapping the two children in the live DOM and re-measuring:
+  the toggle stayed at x `66` while the shipped action moved to x `1108`.
+
+### Changed
+
+- **The settings page content is centred.** In full screen the column is the
+  whole window, so a capped page used to hug the left edge of a wide monitor.
+  Pages inside `[data-slot="settings.section"]` now get `margin-inline: auto`
+  next to the `max-width: 880px` cap: at a 1208px column the page lands at
+  x `220` with equal 124px gutters, and the host's own pages (General settings)
+  centre the same way.
+
+### Note
+
+- `client.js` is now pure LF. It had picked up CRLF line endings, which is what
+  made a `node --check` diagnostic point at the wrong column earlier.
+
 ## 0.1.1 — 2026-11-14
 
 Layout-only release: the header now reads left-to-right the way a settings page

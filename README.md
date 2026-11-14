@@ -142,11 +142,17 @@ and three of four items passed: the panel rect equals the viewport
 close button still close. The fourth — the desktop 40px title-bar drag strip —
 **was not verified**: see [Limits](#limits).
 
-The header layout was measured again for 0.1.1 at 900×1323: the toggle sits at
-x `66` collapsed and `198` expanded (the rail is 56px, so it never covers the
-first icon), the close button stays at x `846` in both states with its glyph
-hidden and a 14×14 arrow mask on top, and the `Tab` order is
-`toggle → Open config file → close`, i.e. left to right.
+The header layout was measured for 0.1.2 at 1264×805 in the browser: with
+the rail expanded the toggle sits at x `66`, the shipped action ("open config
+file") at x `1108` and the close button at x `1210` — collapse on the left, then
+the shipped actions, then exit; the whole group is pinned to the right edge
+because the toggle carries `margin-right: auto`. The toggle's position does not
+depend on registration order: `order: -1` was verified by swapping the two
+children in the live DOM and re-measuring, which reproduced x `66` against
+x `1108`. Content centring is measured too: the page inside
+`[data-slot="settings.section"]` is 880px wide with `margin-inline: auto`, so in
+a 1208px column it lands at x `220` with equal 124px gutters — the host's own
+pages (General settings) are capped and centred the same way.
 
 ## License
 
