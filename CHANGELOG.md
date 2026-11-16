@@ -8,6 +8,40 @@ Two version numbers exist in this project and they are not the same thing:
 - the stored settings `version` — moves only when the shape of the saved record
   changes. This release ships shape `1`.
 
+## 0.1.7 — 2026-11-17
+
+The settings page now opens and closes with the motion that was designed and
+measured back in task-64 but never shipped: a short staggered entrance for the
+content and a faster fade for the close. Both are opt-out, and both disappear
+entirely when the system asks for reduced motion.
+
+The host unmounts the whole portal synchronously when the page closes, with no
+intermediate state to animate. The close animation is therefore played on the
+**same node object** after it has left the tree: a `MutationObserver` catches the
+removed node, re-appends it for one animation, and drops it. The node is never
+cloned — a clone would lose the rendered state and come back blank.
+
+### Added
+
+- Open animation: panel fades in over 170ms while the title (30ms), rail (40ms),
+  header (60ms) and content rows (90 / 126 / 162 / 198ms) follow in a 458ms
+  window. Window mode gets a 260ms rise instead of the stagger.
+- Close animation: 150ms (full-screen) / 160ms (window) fade-and-lift on the
+  ousted node, with an 800ms timer as the safety net.
+- `motion` setting (default `true`) and a "Settings page open/close animation"
+  switch on our own page. Stored shape stays `1`.
+
+### Notes
+
+- `prefers-reduced-motion: reduce` disables every animation and skips the ousted
+  ghost entirely. The override is written last with the same selectors as the
+  animated rules, so the cascade settles it without a force flag — this project
+  still contains no `!important`.
+- Nothing names a host class: the host uses CSS-Modules hashed names and no
+  wrapper id. Every rule keys off `data-shortcut-modal="settings"` plus the
+  structural anchors (`> nav`, the `:has()` lookups for mask / title / action row,
+  and `[data-slot="settings.section"] > *`).
+
 ## 0.1.6 — 2026-11-15
 
 Undoes the stand-down introduced in 0.1.5. **UI Controller 0.2.0 no longer manages

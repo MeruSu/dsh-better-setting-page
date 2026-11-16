@@ -56,7 +56,7 @@ window.__ModuleLoader__.load({
 
     /** Locale namespace and the prefix of every DOM attribute we own. */
     const NS = 'better-setting-page'
-    const VERSION = '0.1.6'
+    const VERSION = '0.1.7'
 
     /** localStorage key. Bumping `SETTINGS_VERSION` requires a migration. */
     const STORE_KEY = 'dsh.better-setting-page.settings'
@@ -66,6 +66,8 @@ window.__ModuleLoader__.load({
       version: SETTINGS_VERSION,
       fullscreen: true,
       navCollapsed: false,
+      /** Open/close chips for the panel itself. Skipped for reduced motion. */
+      motion: true,
       /** Section ids whose nav row is hidden. Our own id is never allowed in here. */
       hidden: [],
     }
@@ -93,6 +95,14 @@ window.__ModuleLoader__.load({
      */
     const NAV_ID_ATTR = 'data-bsp-id'
     const HIDDEN_ATTR = 'data-bsp-hidden'
+    /**
+     * Panel motion: `<html>` carries the preference, the panel root carries the
+     * phase while an animation is running, and a reopened-then-closed panel gets
+     * ousted from the observer's own teardown by this marker.
+     */
+    const MOTION_ATTR = 'data-bsp-motion'
+    const PHASE_ATTR = 'data-bsp-phase'
+    const GHOST_ATTR = 'data-bsp-ghost'
     /** Both directions of the reveal-on-demand window, see `requestOpen`. */
     const OPEN_ATTEMPTS = 8
     const OPEN_INTERVAL_MS = 40
@@ -482,6 +492,139 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
 }
+
+/* ── 9. Panel motion: open stagger, close fade, ousted ghost ─────────────── */
+/* Nothing here names a host class or an id. The host renders the settings page
+   through CSS-Modules hashed class names and has no wrapper id, so every rule
+   keys off the one stable attribute (data-shortcut-modal="settings") plus the
+   structural anchors the renderer does guarantee: "> nav" for the rail, and
+   :has() lookups for the mask, the title row and the action row.
+
+   The section outlet is display: contents — it has no box — so it is never
+   animated; the rows below it are. Our own page animates row by row; every other
+   page animates as one block, because we cannot know how it structures itself.
+
+   Opening is opt-in per mount: the phase attribute only exists while an
+   animation runs, so with the switch off, or under reduced motion, not one rule
+   below matches and the panel behaves exactly as it did in 0.1.6. */
+@keyframes bsp-fade-in{
+  from{opacity: 0}
+}
+@keyframes bsp-mask-in{
+  from{opacity: 0}
+}
+@keyframes bsp-mask-out{
+  to{opacity: 0}
+}
+@keyframes bsp-nav-in{
+  from{opacity: 0; transform: translate3d(-8px, 0, 0)}
+  to{opacity: 1; transform: none}
+}
+@keyframes bsp-card-in{
+  from{opacity: 0; transform: translate3d(0, 10px, 0)}
+  to{opacity: 1; transform: none}
+}
+@keyframes bsp-panel-win-in{
+  from{opacity: 0; transform: translate3d(0, 10px, 0) scale(.965)}
+  to{opacity: 1; transform: none}
+}
+@keyframes bsp-panel-out-fs{
+  from{opacity: 1; transform: none}
+  to{opacity: 0; transform: translate3d(0, -4px, 0)}
+}
+@keyframes bsp-panel-out-win{
+  from{opacity: 1; transform: none}
+  to{opacity: 0; transform: translate3d(0, 6px, 0) scale(.985)}
+}
+
+/* Open, full-screen: the panel is one slab of the page colour, so it lands fast
+   and the content floats up half a beat later. 458ms in total. */
+html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase="open"]{
+  animation: bsp-fade-in 170ms linear both;
+}
+html[data-bsp-motion="on"] div:has(> div[data-shortcut-modal="settings"][data-bsp-phase="open"]) > div:first-child{
+  animation: bsp-mask-in 180ms linear both;
+}
+html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] > div:has([data-slot="settings.header"]){
+  animation: bsp-fade-in 200ms linear 30ms both;
+}
+html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] > nav{
+  animation: bsp-nav-in 220ms cubic-bezier(.22,1,.36,1) 40ms both;
+}
+html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] > div:has([data-slot="settings.action"]){
+  animation: bsp-fade-in 200ms linear 60ms both;
+}
+html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] [data-slot="settings.section"] > *:not(.bsp-page){
+  animation: bsp-card-in 260ms cubic-bezier(.22,1,.36,1) 90ms both;
+}
+/* Our own page staggers row by row. It is deliberately NOT gated on the open
+   phase: the host always opens the settings panel on its first section, so a
+   phase-gated row rule could never match (measured: 0 animations when our page
+   mounts from the rail). Gating on motion alone means the stagger runs whenever
+   our page mounts — including a rail click — which is the only time it is ever
+   visible. */
+html[data-bsp-motion="on"] .bsp-page > *:nth-child(1){
+  animation: bsp-card-in 260ms cubic-bezier(.22,1,.36,1) 90ms both;
+}
+html[data-bsp-motion="on"] .bsp-page > *:nth-child(2){
+  animation: bsp-card-in 260ms cubic-bezier(.22,1,.36,1) 126ms both;
+}
+html[data-bsp-motion="on"] .bsp-page > *:nth-child(3){
+  animation: bsp-card-in 260ms cubic-bezier(.22,1,.36,1) 162ms both;
+}
+html[data-bsp-motion="on"] .bsp-page > *:nth-child(n+4){
+  animation: bsp-card-in 260ms cubic-bezier(.22,1,.36,1) 198ms both;
+}
+
+/* Open, window: no stagger. A dialog this small staggered reads as broken. */
+html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="settings"][data-bsp-phase="open"]{
+  animation: bsp-panel-win-in 260ms cubic-bezier(.22,1,.36,1) both;
+}
+html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] > div:has([data-slot="settings.header"]),
+html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] > nav,
+html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] > div:has([data-slot="settings.action"]),
+html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] [data-slot="settings.section"] > *,
+html[data-bsp-motion="on"][data-bsp-fullscreen="off"] .bsp-page > *{
+  animation: none;
+}
+
+/* Close: the host removes the whole portal synchronously, so the only way to
+   animate a close is to put the same node object back (see the ousted-ghost
+   observer below) and let this rule run on it. Closing is deliberately faster
+   than opening, and both directions move up: the panel is being taken away. */
+html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase="closing"]{
+  animation: bsp-panel-out-fs 150ms cubic-bezier(.4,0,1,1) both;
+}
+html[data-bsp-motion="on"] div:has(> div[data-shortcut-modal="settings"][data-bsp-phase="closing"]) > div:first-child{
+  animation: bsp-mask-out 150ms linear both;
+}
+html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="settings"][data-bsp-phase="closing"]{
+  animation: bsp-panel-out-win 160ms cubic-bezier(.4,0,1,1) both;
+}
+
+/* Reduced motion: not a faster animation, no animation. Same selectors, written
+   last, so the cascade settles this without a single force flag (the project
+   forbids that property outright, and one exception would invite the next). */
+@media (prefers-reduced-motion: reduce){
+  html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase],
+  html[data-bsp-motion="on"] div:has(> div[data-shortcut-modal="settings"][data-bsp-phase]) > div:first-child,
+  html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase] > nav,
+  html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase] > div:has([data-slot="settings.header"]),
+  html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase] > div:has([data-slot="settings.action"]),
+  html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase] [data-slot="settings.section"] > *:not(.bsp-page){
+    animation: none;
+  }
+  /* The stagger rules each carry an :nth-child(), so a bare child selector here would
+     lose on specificity and the rows would keep animating. Same pseudo-class,
+     same rule count, written last. The rows are not gated on the open phase, so
+     this block must not be either. */
+  html[data-bsp-motion="on"] .bsp-page > *:nth-child(1),
+  html[data-bsp-motion="on"] .bsp-page > *:nth-child(2),
+  html[data-bsp-motion="on"] .bsp-page > *:nth-child(3),
+  html[data-bsp-motion="on"] .bsp-page > *:nth-child(n+4){
+    animation: none;
+  }
+}
 `.trim()
     //#endregion
 
@@ -496,6 +639,8 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       'page.fullscreenHint': '铺满整个窗口。桌面版会在顶部留出标题栏高度，那一条仍然可以拖动窗口。',
       'page.navCollapsed': '默认收起左侧分类栏',
       'page.navCollapsedHint': '收成 56px 图标栏，分类名保留给读屏。点右上角箭头可随时切换。',
+      'page.motion': '设置页开关动画',
+      'page.motionHint': '打开时内容错峰浮起，关闭时整页渐隐退开。系统开了「减少动效」或本项关掉时直接跳过，不等也不拖。',
       'page.reset': '恢复默认',
       'page.resetDone': '已恢复默认',
       'page.saveFailed': '浏览器拒绝保存（localStorage 已满或被禁用），这次改动没有生效。',
@@ -520,6 +665,8 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       'page.fullscreenHint': 'Fill the whole window. On desktop the title-bar height is kept as padding, and that strip still drags the window.',
       'page.navCollapsed': 'Collapse the section list by default',
       'page.navCollapsedHint': 'Shrinks the rail to a 56px icon column; section names stay in the accessibility tree. Toggle it any time with the arrow in the header.',
+      'page.motion': 'Settings page open/close animation',
+      'page.motionHint': 'Content floats up in a short stagger on open, and the whole panel fades away on close. Skipped outright when the system asks for reduced motion or this is off.',
       'page.reset': 'Restore defaults',
       'page.resetDone': 'Defaults restored',
       'page.saveFailed': 'The browser refused to save this (localStorage full or blocked); the change did not stick.',
@@ -580,6 +727,9 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       next.navCollapsed = isPlainObject(raw) && typeof raw.navCollapsed === 'boolean'
         ? raw.navCollapsed
         : DEFAULTS.navCollapsed
+      next.motion = isPlainObject(raw) && typeof raw.motion === 'boolean'
+        ? raw.motion
+        : DEFAULTS.motion
       next.hidden = sanitizeHidden(isPlainObject(raw) ? raw.hidden : DEFAULTS.hidden)
       next.unknown = unknown
       return next
@@ -644,6 +794,7 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       return writeSettings({
         fullscreen: DEFAULTS.fullscreen,
         navCollapsed: DEFAULTS.navCollapsed,
+        motion: DEFAULTS.motion,
         hidden: [],
       })
     }
@@ -660,6 +811,7 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       if (root === null || root === undefined) return
       root.setAttribute(NAV_ATTR, settings.navCollapsed === true ? 'collapsed' : 'expanded')
       root.setAttribute(FULLSCREEN_ATTR, settings.fullscreen === true ? 'on' : 'off')
+      root.setAttribute(MOTION_ATTR, settings.motion === false ? 'off' : 'on')
     }
 
     function clearDocument() {
@@ -668,6 +820,7 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       if (root === null || root === undefined) return
       root.removeAttribute(FULLSCREEN_ATTR)
       root.removeAttribute(NAV_ATTR)
+      root.removeAttribute(MOTION_ATTR)
     }
 
     /** Another window sharing this profile changed the settings. */
@@ -924,6 +1077,188 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
     }
     //#endregion
 
+    //#region panel motion
+    /**
+     * The measured table from the motion prototype (task-64), kept as data so a
+     * unit test can pin the exact numbers instead of grepping CSS, and so the
+     * stylesheet and this table cannot drift apart without a failing check.
+     */
+    const MOTION_EASE_OUT = 'cubic-bezier(.22,1,.36,1)'
+    const MOTION_EASE_IN = 'cubic-bezier(.4,0,1,1)'
+    const MOTION_FULLSCREEN_ROWS = [
+      { key: 'mask', delay: 0, duration: 180, easing: 'linear' },
+      { key: 'panel', delay: 0, duration: 170, easing: 'linear' },
+      { key: 'title', delay: 30, duration: 200, easing: 'linear' },
+      { key: 'nav', delay: 40, duration: 220, easing: MOTION_EASE_OUT },
+      { key: 'header', delay: 60, duration: 200, easing: 'linear' },
+      { key: 'row1', delay: 90, duration: 260, easing: MOTION_EASE_OUT },
+      { key: 'row2', delay: 126, duration: 260, easing: MOTION_EASE_OUT },
+      { key: 'row3', delay: 162, duration: 260, easing: MOTION_EASE_OUT },
+      { key: 'row4', delay: 198, duration: 260, easing: MOTION_EASE_OUT },
+    ]
+    const MOTION_WINDOW_ROWS = [
+      { key: 'mask', delay: 0, duration: 180, easing: 'linear' },
+      { key: 'panel', delay: 0, duration: 260, easing: MOTION_EASE_OUT },
+    ]
+    const MOTION_OPEN_FULLSCREEN_MS = 458
+    const MOTION_OPEN_WINDOW_MS = 260
+    const MOTION_CLOSE_FULLSCREEN_MS = 150
+    const MOTION_CLOSE_WINDOW_MS = 160
+    /** Safety net only: `animationend` is the real finish signal. */
+    const MOTION_CLOSE_FALLBACK_MS = 800
+    /** Keep the phase attribute a hair longer than the last animation. */
+    const MOTION_PHASE_LINGER_MS = 60
+
+    function reducedMotionNow() {
+      try {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches === true
+      } catch (error) {
+        return false
+      }
+    }
+
+    /**
+     * What the open animation should look like right now. `animate: false` means
+     * the panel must appear and disappear exactly as it did before 0.1.7 — no
+     * phase attribute, no ousted ghost, no timers.
+     */
+    function panelMotionPlan(options) {
+      const opts = options || {}
+      const fullscreen = opts.fullscreen === true
+      const mode = fullscreen ? 'fullscreen' : 'window'
+      if (opts.motion === false || opts.reduceMotion === true) {
+        return { animate: false, mode, closeMs: 0, totalMs: 0, rows: [] }
+      }
+      const source = fullscreen ? MOTION_FULLSCREEN_ROWS : MOTION_WINDOW_ROWS
+      return {
+        animate: true,
+        mode,
+        closeMs: fullscreen ? MOTION_CLOSE_FULLSCREEN_MS : MOTION_CLOSE_WINDOW_MS,
+        totalMs: fullscreen ? MOTION_OPEN_FULLSCREEN_MS : MOTION_OPEN_WINDOW_MS,
+        rows: source.map((row) => ({ ...row })),
+      }
+    }
+
+    /**
+     * A ghost is only ever made from a real portal teardown: the removed node has
+     * to contain the panel (not *be* the panel), it must not already be a ghost
+     * (our own cleanup would otherwise be re-inserted, forever), and motion has
+     * to be wanted at all.
+     */
+    function ghostEligible(node, options) {
+      const opts = options || {}
+      if (opts.motion === false || opts.reduceMotion === true) return false
+      if (!node || typeof node.getAttribute !== 'function') return false
+      if (node.getAttribute(GHOST_ATTR) === '1') return false
+      if (typeof node.matches === 'function' && node.matches(PANEL)) return false
+      if (typeof node.querySelector !== 'function') return false
+      return node.querySelector(PANEL) !== null
+    }
+
+    /**
+     * Watch the portal come and go. The host unmounts the panel synchronously and
+     * leaves no intermediate state, so the close animation is played on the same
+     * node object after it has already left the tree — re-append, animate, drop.
+     */
+    function installPanelMotion() {
+      if (typeof MutationObserver !== 'function' || typeof document === 'undefined'
+        || document === null || !document.body) {
+        return () => {}
+      }
+      let openTimer = null
+      const ghosts = new Set()
+
+      const prefs = () => ({
+        motion: currentSettings().motion !== false,
+        reduceMotion: reducedMotionNow(),
+        fullscreen: currentSettings().fullscreen === true,
+      })
+
+      const finishGhost = (entry) => {
+        if (entry.done === true) return
+        entry.done = true
+        ghosts.delete(entry)
+        if (entry.timer !== null) clearTimeout(entry.timer)
+        if (entry.panel !== null && entry.onEnd !== null) {
+          entry.panel.removeEventListener('animationend', entry.onEnd)
+        }
+        if (entry.node.getAttribute(PHASE_ATTR) !== null) entry.node.removeAttribute(PHASE_ATTR)
+        if (entry.node.parentNode !== null && typeof entry.node.remove === 'function') entry.node.remove()
+      }
+
+      const dropGhosts = () => {
+        for (const entry of Array.from(ghosts)) finishGhost(entry)
+      }
+
+      const startOpen = (panel) => {
+        const now = prefs()
+        const plan = panelMotionPlan(now)
+        // A reopen during the closing animation must not stack two panels: the
+        // ghost goes first, the live one starts clean.
+        dropGhosts()
+        if (plan.animate !== true) return
+        if (panel.getAttribute(PHASE_ATTR) === 'open') return
+        panel.setAttribute(PHASE_ATTR, 'open')
+        if (openTimer !== null) clearTimeout(openTimer)
+        openTimer = setTimeout(() => {
+          openTimer = null
+          if (panel.getAttribute(PHASE_ATTR) === 'open') panel.removeAttribute(PHASE_ATTR)
+        }, plan.totalMs + MOTION_PHASE_LINGER_MS)
+      }
+
+      const startClose = (node) => {
+        if (ghostEligible(node, prefs()) !== true) return
+        const panel = node.querySelector(PANEL)
+        const plan = panelMotionPlan(prefs())
+        if (plan.animate !== true || panel === null) return
+        node.setAttribute(GHOST_ATTR, '1')
+        panel.setAttribute(PHASE_ATTR, 'closing')
+        if (node.style && typeof node.style.setProperty === 'function') {
+          node.style.setProperty('pointer-events', 'none')
+        }
+        document.body.appendChild(node)
+        const entry = { node, panel, timer: null, onEnd: null, done: false, finish: null }
+        entry.finish = () => finishGhost(entry)
+        entry.onEnd = () => entry.finish()
+        ghosts.add(entry)
+        panel.addEventListener('animationend', entry.onEnd)
+        entry.timer = setTimeout(() => entry.finish(), MOTION_CLOSE_FALLBACK_MS)
+      }
+
+      const observer = new MutationObserver((records) => {
+        for (const record of records) {
+          if (record.addedNodes) {
+            for (const node of record.addedNodes) {
+              if (!node || node.nodeType !== 1) continue
+              if (node.getAttribute && node.getAttribute(GHOST_ATTR) === '1') continue
+              const panel = node.matches && node.matches(PANEL)
+                ? node
+                : (typeof node.querySelector === 'function' ? node.querySelector(PANEL) : null)
+              if (panel !== null) startOpen(panel)
+            }
+          }
+          if (record.removedNodes) {
+            for (const node of record.removedNodes) {
+              if (!node || node.nodeType !== 1) continue
+              startClose(node)
+            }
+          }
+        }
+      })
+      observer.observe(document.body, { childList: true })
+
+      return () => {
+        observer.disconnect()
+        if (openTimer !== null) {
+          clearTimeout(openTimer)
+          openTimer = null
+        }
+        dropGhosts()
+      }
+    }
+    //#endregion
+
     //#region components
     function translateOf(props) {
       return typeof props.t === 'function' ? props.t : (key) => key
@@ -1123,6 +1458,9 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
         row('page.navCollapsed', 'page.navCollapsedHint',
           settings.navCollapsed === true,
           (next) => write({ navCollapsed: next })),
+        row('page.motion', 'page.motionHint',
+          settings.motion !== false,
+          (next) => write({ motion: next })),
         h('div', { key: 'sections', className: 'bsp-sections' }, [
           h('h3', { key: 'title', className: 'bsp-rowLabel' }, t('pages.title')),
           h('p', { key: 'intro', className: 'bsp-sub' }, t('pages.intro')),
@@ -1167,6 +1505,7 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       ctx.effect(() => subscribeSettings(applyToDocument), `${NS}: attributes`)
       ctx.effect(() => watchStorage(), `${NS}: storage`)
       ctx.effect(() => installNavSync(ctx), `${NS}: nav sync`)
+      ctx.effect(() => installPanelMotion(), `${NS}: panel motion`)
 
       ctx.slots.inject('settings.action', () => ctx.slots.register({
         name: 'settings.action',
@@ -1222,6 +1561,18 @@ div[data-shortcut-modal="settings"] nav [data-bsp-hidden="1"]:not([aria-current=
       HIDDEN_MAX,
       NAV_ID_ATTR,
       HIDDEN_ATTR,
+      MOTION_ATTR,
+      PHASE_ATTR,
+      GHOST_ATTR,
+      panelMotionPlan,
+      ghostEligible,
+      installPanelMotion,
+      MOTION_FULLSCREEN_ROWS,
+      MOTION_WINDOW_ROWS,
+      MOTION_OPEN_FULLSCREEN_MS,
+      MOTION_OPEN_WINDOW_MS,
+      MOTION_CLOSE_FULLSCREEN_MS,
+      MOTION_CLOSE_WINDOW_MS,
       readSettings,
       writeSettings,
       resetSettings,

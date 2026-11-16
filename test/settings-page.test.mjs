@@ -645,12 +645,15 @@ function load(options = {}) {
     equal(tree.props['data-modal-autofocus'], undefined, 'must not steal initial focus')
     void React
   })
-  check('the settings page renders two switches and a restore button', () => {
+  check('the settings page renders three switches and a restore button', () => {
     const tree = mod.SettingsPage({ t: (key) => key })
     const rows = tree.props.children.filter((node) => node && node.props && node.props.className === 'bsp-row')
-    equal(rows.length, 2, 'two rows')
+    equal(rows.length, 3, 'three rows')
     const boxes = rows.map((row) => row.props.children.find((child) => child && child.type === 'input'))
-    equal(boxes.length, 2, 'two checkboxes')
+    equal(boxes.length, 3, 'three checkboxes')
+    // The third row is the panel-motion switch, and it is on by default.
+    equal(String(rows[2].props.children[0].props.children[0].props.children), 'page.motion', 'motion row label')
+    equal(boxes[2].props.checked, true, 'motion defaults to on')
     for (const box of boxes) {
       equal(box.props.type, 'checkbox', 'checkbox input')
       truthy(typeof box.props.onChange === 'function', 'checkbox is wired')
@@ -988,6 +991,101 @@ function load(options = {}) {
       truthy(meta && typeof meta.title === 'string' && meta.title.trim(), lang + ' title')
       truthy(meta && typeof meta.description === 'string' && meta.description.trim(), lang + ' description')
     }
+  })
+}
+//#endregion
+
+//#region 13. panel motion (0.1.7)
+/**
+ * The numbers here are the measured table from task-64's prototype report. They
+ * are asserted twice — once against the JS plan the runtime uses, once against
+ * the literal CSS — so changing either half without the other breaks the build.
+ */
+{
+  const { mod } = load()
+  check('panel motion: the full-screen stagger is the measured table', () => {
+    const rows = mod.MOTION_FULLSCREEN_ROWS.map((row) => `${row.key}/${row.delay}/${row.duration}/${row.easing}`)
+    equal(JSON.stringify(rows), JSON.stringify([
+      'mask/0/180/linear',
+      'panel/0/170/linear',
+      'title/30/200/linear',
+      'nav/40/220/cubic-bezier(.22,1,.36,1)',
+      'header/60/200/linear',
+      'row1/90/260/cubic-bezier(.22,1,.36,1)',
+      'row2/126/260/cubic-bezier(.22,1,.36,1)',
+      'row3/162/260/cubic-bezier(.22,1,.36,1)',
+      'row4/198/260/cubic-bezier(.22,1,.36,1)',
+    ]), 'full-screen rows')
+    equal(mod.MOTION_OPEN_FULLSCREEN_MS, 458, 'open window ends at 458ms')
+    const plan = mod.panelMotionPlan({ fullscreen: true, motion: true, reduceMotion: false })
+    equal(plan.animate, true, 'animates')
+    equal(plan.mode, 'fullscreen', 'mode')
+    equal(plan.totalMs, 458, 'total')
+    equal(plan.closeMs, 150, 'close duration')
+    equal(plan.rows.length, 9, 'nine tracked elements')
+    const win = mod.panelMotionPlan({ fullscreen: false, motion: true, reduceMotion: false })
+    equal(win.totalMs, 260, 'window total')
+    equal(win.closeMs, 160, 'window close')
+    equal(win.rows.length, 2, 'window rows')
+    // The stylesheet has to carry the same numbers; both halves are load-bearing.
+    has(mod.CSS, 'bsp-card-in 260ms cubic-bezier(.22,1,.36,1) 198ms', 'card4 timing in CSS')
+    has(mod.CSS, 'bsp-nav-in 220ms cubic-bezier(.22,1,.36,1) 40ms', 'nav timing in CSS')
+    has(mod.CSS, 'bsp-fade-in 170ms linear both', 'panel timing in CSS')
+    has(mod.CSS, 'bsp-panel-out-fs 150ms cubic-bezier(.4,0,1,1) both', 'full-screen close timing')
+    has(mod.CSS, 'bsp-panel-out-win 160ms cubic-bezier(.4,0,1,1) both', 'window close timing')
+  })
+
+  check('panel motion: our page staggers on mount, not on the open phase', () => {
+    // The host always opens the settings panel on its first section, so a
+    // phase-gated row rule could never match — measured in the real host: zero
+    // animations when our page mounted from the rail. The rows therefore hang off
+    // motion alone, and the reduced-motion override has to match them the same way.
+    has(mod.CSS, 'html[data-bsp-motion="on"] .bsp-page > *:nth-child(1)', 'row1 rule')
+    has(mod.CSS, 'html[data-bsp-motion="on"] .bsp-page > *:nth-child(n+4)', 'row4 rule')
+    equal(mod.CSS.includes('[data-bsp-phase="open"] .bsp-page'), false, 'row rules are not phase-gated')
+    // Inside the reduced-motion block the row override must also be phase-free.
+    const reduceBlock = mod.CSS.slice(mod.CSS.indexOf('@media (prefers-reduced-motion: reduce)'))
+    has(reduceBlock, 'html[data-bsp-motion="on"] .bsp-page > *:nth-child(1)', 'row1 override')
+    equal(reduceBlock.includes('data-bsp-phase] .bsp-page'), false, 'row override is not phase-gated')
+    // Window mode still kills the stagger, and it cannot rely on the phase either.
+    has(mod.CSS, 'html[data-bsp-motion="on"][data-bsp-fullscreen="off"] .bsp-page > *', 'window mode kills the stagger')
+  })
+
+  check('panel motion: off or reduced motion means zero animation', () => {
+    const off = [
+      { fullscreen: true, motion: false, reduceMotion: false },
+      { fullscreen: true, motion: true, reduceMotion: true },
+      { fullscreen: false, motion: false, reduceMotion: false },
+    ]
+    for (const opts of off) {
+      const plan = mod.panelMotionPlan(opts)
+      equal(plan.animate, false, 'no animation')
+      equal(plan.rows.length, 0, 'no rows')
+      equal(plan.closeMs, 0, 'no close animation')
+      equal(plan.totalMs, 0, 'no open window')
+    }
+    has(mod.CSS, '@media (prefers-reduced-motion: reduce)', 'reduced-motion media query present')
+    has(mod.CSS, 'animation: none;', 'override present')
+  })
+
+  check('panel motion: only a real portal teardown becomes a ghost', () => {
+    const node = (opts) => ({
+      getAttribute: (name) => (opts.attr && opts.attr[name] !== undefined ? opts.attr[name] : null),
+      matches: () => opts.isPanel === true,
+      querySelector: () => (opts.hasPanel === true ? { id: 'panel' } : null),
+    })
+    equal(mod.ghostEligible(node({ hasPanel: true }), { motion: true, reduceMotion: false }), true,
+      'an overlay that contains the panel')
+    equal(mod.ghostEligible(node({ isPanel: true, hasPanel: true }), { motion: true, reduceMotion: false }), false,
+      'the panel itself is not an overlay')
+    equal(mod.ghostEligible(node({ hasPanel: true }), { motion: false, reduceMotion: false }), false,
+      'motion switched off')
+    equal(mod.ghostEligible(node({ hasPanel: true }), { motion: true, reduceMotion: true }), false,
+      'reduced motion')
+    equal(mod.ghostEligible(node({ hasPanel: true, attr: { 'data-bsp-ghost': '1' } }), { motion: true, reduceMotion: false }), false,
+      'our own cleanup is never re-inserted')
+    equal(mod.ghostEligible(node({ hasPanel: false }), { motion: true, reduceMotion: false }), false,
+      'a node with no panel in it')
   })
 }
 //#endregion
