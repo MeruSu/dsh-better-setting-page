@@ -17,21 +17,21 @@ should have had, and hands 132px back to the content on demand.
 
 ## Screenshots
 
-<!-- shot: settings-page-overview — the settings dialog filling the whole window,
-     section rail down the left edge, content column taking the rest -->
+<img src="screenshots/hidden-settings-pages.png" alt="The settings page with four pages unticked in the hidden list; those pages are missing from the left rail">
 
-*Full window:* the dialog is the page now, the rail runs down the left edge, and
-the content column gets everything else.
+*Hide the pages you never open:* built-in plugins, Agent presets, Notion and bili
+are unticked here, so they are gone from the left rail — and this page is the only
+way back into them.
 
-<!-- shot: settings-page-hidden-pages — this plugin's own page, showing the two
-     switches and the hidden-pages list with three rows ticked -->
+<img src="screenshots/portrait-window.png" alt="The same settings page in a narrow portrait window, rail and content both readable">
 
-*Its own page:* three switches, the hidden-pages list, and **Restore defaults**.
+*Portrait windows still fit:* the rail and the content column stop fighting over
+the same 800px, so a tall narrow window stays readable.
 
-<!-- shot: settings-motion — two frames side by side: the settings page 60ms after
-     opening (content still rising) and the same page mid-close -->
+<img src="screenshots/rail-collapsed.png" alt="The left rail collapsed to a 56px column of icons, content column wider">
 
-*Motion:* content floats up on open; the page fades away on close.
+*The rail collapses to icons:* 56px wide, with the section names kept for screen
+readers; the arrow in the header brings it back.
 
 ## Install
 
