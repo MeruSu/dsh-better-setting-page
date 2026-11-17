@@ -8,6 +8,14 @@ Two version numbers exist in this project and they are not the same thing:
 - the stored settings `version` — moves only when the shape of the saved record
   changes. This release ships shape `1`.
 
+## 0.1.9 — 2026-11-17
+
+**Packaging only: `engines.dsh`.** This release adds
+`"engines": { "dsh": ">=0.2.2-rc.1 <0.3.0-0" }` so the host — and any directory
+that lists the plugin — can check up front that a compatible DSH is installed.
+Nothing else changed: no behaviour, no layout, no motion, no settings. If you
+already run 0.1.8, installing 0.1.9 looks and acts exactly the same.
+
 ## 0.1.8 — 2026-11-17
 
 Every plugin's settings page now gets the content entrance — the host's own

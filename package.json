@@ -1,8 +1,8 @@
 {
   "name": "dsh-better-setting-page",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": false,
-  "description": "Full-screen settings page with a collapsible navigation rail for DeepSeek Harness, plus a small page holding the two switches.",
+  "description": "Full-screen settings page with a collapsible navigation rail for DeepSeek Harness, plus a small page holding the three switches (full screen, collapsed rail, and the panel motion).",
   "license": "MIT",
   "author": {
     "name": "MeruSu"
@@ -10,6 +10,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MeruSu/dsh-better-setting-page.git"
+  },
+  "engines": {
+    "dsh": ">=0.2.2-rc.1 <0.3.0-0"
   },
   "keywords": [
     "dsh",
