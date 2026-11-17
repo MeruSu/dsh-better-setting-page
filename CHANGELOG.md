@@ -8,6 +8,38 @@ Two version numbers exist in this project and they are not the same thing:
 - the stored settings `version` — moves only when the shape of the saved record
   changes. This release ships shape `1`.
 
+## 0.1.8 — 2026-11-17
+
+Every plugin's settings page now gets the content entrance — the host's own
+sections included, not only the one the host happens to open first — and the
+animation switch now says why it does nothing when the system asks for reduced
+motion, instead of reading "on" while everything stands still.
+
+The generic content rule was gated on `[data-bsp-phase="open"]`, and the host
+lands on its first section — so switching to any other page (the host's own or
+another plugin's) mounted fresh content under no matching phase and animated
+nothing. The rule now hangs off `data-bsp-motion` alone: one level (direct
+children of `[data-slot="settings.section"]`), one 90ms delay. There is no
+per-row staircase on foreign pages, because that would mean guessing at markup
+this plugin does not own.
+
+Both override blocks still carried the phase selector and would have lied once
+the rule was un-gated: window mode (no stagger inside a small dialog) and
+`prefers-reduced-motion` (no animation at all) now match the same selector with
+the same specificity, later in the file, so the cascade settles it without
+`!important`.
+
+### Added
+
+- Three regression groups (61 → 64): the generic rule is mount-gated and one
+  level deep, both overrides neutralise it, and our own page keeps its
+  90 / 126 / 162 / 198ms staircase without doubling.
+- The motion row now explains itself: when the system reports
+  `prefers-reduced-motion: reduce`, a small note under "Settings page
+  open/close animation" says the animation will not play. The switch stays
+  usable — without the note, "switch on + system asks for less motion" looked
+  like a control that did nothing (64 → 65 checks, one group added for this).
+
 ## 0.1.7 — 2026-11-17
 
 The settings page now opens and closes with the motion that was designed and

@@ -56,7 +56,7 @@ window.__ModuleLoader__.load({
 
     /** Locale namespace and the prefix of every DOM attribute we own. */
     const NS = 'better-setting-page'
-    const VERSION = '0.1.7'
+    const VERSION = '0.1.8'
 
     /** localStorage key. Bumping `SETTINGS_VERSION` requires a migration. */
     const STORE_KEY = 'dsh.better-setting-page.settings'
@@ -391,6 +391,12 @@ div[data-shortcut-modal="settings"] > div:has([data-slot="settings.action"]) > b
   line-height: 18px;
   color: var(--dsw-alias-label-secondary);
 }
+.bsp-rowNote{
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
 .bsp-check{
   flex: none;
   width: 16px;
@@ -554,7 +560,13 @@ html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase="o
 html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] > div:has([data-slot="settings.action"]){
   animation: bsp-fade-in 200ms linear 60ms both;
 }
-html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] [data-slot="settings.section"] > *:not(.bsp-page){
+/* Every plugin's settings section gets the same one-beat entrance. It is
+   deliberately NOT gated on the open phase (same trap as the rows below): the
+   host opens the panel on its first section, so a phase-gated rule can only
+   match that one section — switching sections mounts fresh content and would
+   show no motion. One level deep, one 90ms delay: we do not know other
+   plugins' DOM and must not guess a per-row stagger. */
+html[data-bsp-motion="on"] div[data-shortcut-modal="settings"] [data-slot="settings.section"] > *:not(.bsp-page){
   animation: bsp-card-in 260ms cubic-bezier(.22,1,.36,1) 90ms both;
 }
 /* Our own page staggers row by row. It is deliberately NOT gated on the open
@@ -583,7 +595,7 @@ html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="s
 html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] > div:has([data-slot="settings.header"]),
 html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] > nav,
 html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] > div:has([data-slot="settings.action"]),
-html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="settings"][data-bsp-phase="open"] [data-slot="settings.section"] > *,
+html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="settings"] [data-slot="settings.section"] > *,
 html[data-bsp-motion="on"][data-bsp-fullscreen="off"] .bsp-page > *{
   animation: none;
 }
@@ -611,7 +623,7 @@ html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="s
   html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase] > nav,
   html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase] > div:has([data-slot="settings.header"]),
   html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase] > div:has([data-slot="settings.action"]),
-  html[data-bsp-motion="on"] div[data-shortcut-modal="settings"][data-bsp-phase] [data-slot="settings.section"] > *:not(.bsp-page){
+  html[data-bsp-motion="on"] div[data-shortcut-modal="settings"] [data-slot="settings.section"] > *:not(.bsp-page){
     animation: none;
   }
   /* The stagger rules each carry an :nth-child(), so a bare child selector here would
@@ -641,6 +653,7 @@ html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="s
       'page.navCollapsedHint': '收成 56px 图标栏，分类名保留给读屏。点右上角箭头可随时切换。',
       'page.motion': '设置页开关动画',
       'page.motionHint': '打开时内容错峰浮起，关闭时整页渐隐退开。系统开了「减少动效」或本项关掉时直接跳过，不等也不拖。',
+      'page.motionReduced': '系统已开启「减少动效」，动画不会播放。',
       'page.reset': '恢复默认',
       'page.resetDone': '已恢复默认',
       'page.saveFailed': '浏览器拒绝保存（localStorage 已满或被禁用），这次改动没有生效。',
@@ -667,6 +680,7 @@ html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="s
       'page.navCollapsedHint': 'Shrinks the rail to a 56px icon column; section names stay in the accessibility tree. Toggle it any time with the arrow in the header.',
       'page.motion': 'Settings page open/close animation',
       'page.motionHint': 'Content floats up in a short stagger on open, and the whole panel fades away on close. Skipped outright when the system asks for reduced motion or this is off.',
+      'page.motionReduced': 'Your system asks for reduced motion, so the animation will not play.',
       'page.reset': 'Restore defaults',
       'page.resetDone': 'Defaults restored',
       'page.saveFailed': 'The browser refused to save this (localStorage full or blocked); the change did not stick.',
@@ -812,6 +826,22 @@ html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="s
       root.setAttribute(NAV_ATTR, settings.navCollapsed === true ? 'collapsed' : 'expanded')
       root.setAttribute(FULLSCREEN_ATTR, settings.fullscreen === true ? 'on' : 'off')
       root.setAttribute(MOTION_ATTR, settings.motion === false ? 'off' : 'on')
+    }
+
+    /**
+     * Whether the OS asks for reduced motion. Read on every render — the user can
+     * flip it while the settings page is open — and never cached, so the hint that
+     * explains a dead animation cannot go stale. A browser without matchMedia is
+     * treated as "no preference".
+     */
+    function prefersReducedMotionNow() {
+      if (typeof window === 'undefined' || window === null) return false
+      if (typeof window.matchMedia !== 'function') return false
+      try {
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches === true
+      } catch (error) {
+        return false
+      }
     }
 
     function clearDocument() {
@@ -1374,13 +1404,14 @@ html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="s
         if (lastError === 'write') setNotice(t('page.saveFailed'))
       }
 
-      const row = (titleKey, hintKey, checked, onToggle, disabled) => h('div', {
+      const row = (titleKey, hintKey, checked, onToggle, disabled, note) => h('div', {
         key: titleKey,
         className: 'bsp-row',
       }, [
         h('div', { key: 'text', className: 'bsp-rowText' }, [
           h('div', { key: 'label', className: 'bsp-rowLabel' }, t(titleKey)),
           h('div', { key: 'hint', className: 'bsp-rowHint' }, t(hintKey)),
+          note ? h('div', { key: 'note', className: 'bsp-rowNote', 'data-bsp-row-note': titleKey }, note) : null,
         ]),
         h('input', {
           key: 'check',
@@ -1460,7 +1491,9 @@ html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="s
           (next) => write({ navCollapsed: next })),
         row('page.motion', 'page.motionHint',
           settings.motion !== false,
-          (next) => write({ motion: next })),
+          (next) => write({ motion: next }),
+          undefined,
+          prefersReducedMotionNow() ? t('page.motionReduced') : ''),
         h('div', { key: 'sections', className: 'bsp-sections' }, [
           h('h3', { key: 'title', className: 'bsp-rowLabel' }, t('pages.title')),
           h('p', { key: 'intro', className: 'bsp-sub' }, t('pages.intro')),

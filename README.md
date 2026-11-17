@@ -110,6 +110,13 @@ rail, header and content rows float up over the next half second — 458ms in
 total, measured rather than guessed. The window-size dialog gets a 260ms rise
 instead of the stagger, because a small dialog that staggers reads as broken.
 
+That entrance also covers **every plugin's** settings section, including the
+pages the host ships itself. Foreign content gets one level and one 90ms beat: a
+per-row staircase there would mean guessing at markup we do not own, and a guess
+that misses animates nothing. Our own page keeps its four-step
+90 / 126 / 162 / 198ms staircase and is excluded from the generic rule, so a row
+never animates twice.
+
 Closing is faster and simpler: 150ms full-screen, 160ms window, a fade with a
 small upward drift. The host removes the page synchronously, so the animation is
 played on the very node that just left the tree and then dropped — the page never
@@ -117,6 +124,8 @@ blinks back.
 
 Turn it off with **Settings page open/close animation** on our page. It is also
 skipped outright when the system asks for reduced motion — not shortened, skipped.
+In that case the row says so in a small note under the switch, so "on" never
+looks like a control that does nothing.
 
 ## Settings — what you can configure
 
@@ -237,7 +246,7 @@ index.js             host half: exists so the bundle resolves, injects nothing
 cordis.patch.yml     bundle patch
 locale/              zh + en strings for the section label and its page
 screenshots/         the images the placeholders above are waiting for
-test/settings-page.test.mjs   57 checks, no dependencies
+test/settings-page.test.mjs   65 checks, no dependencies
 ```
 
 ## Tests
@@ -245,7 +254,7 @@ test/settings-page.test.mjs   57 checks, no dependencies
 ```powershell
 node --check client.js
 node --check index.js
-node test/settings-page.test.mjs     # → PASS — 57 groups
+node test/settings-page.test.mjs     # → PASS — 65 groups
 ```
 
 The suite executes the real `client.js` with a stubbed `window.__ModuleLoader__`

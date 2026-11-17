@@ -89,10 +89,15 @@ dsh --profile <profile>
 总共 458ms —— 这个数字是量出来的，不是猜的。800px 窗口档不逐行错峰，改成 260ms 整体上浮：
 小弹窗一行一行地动，看起来像坏了。
 
+这段入场现在也覆盖**每一个插件**的设置分区，包括宿主自己那几页。别人的内容只给一层、
+一个 90ms 的拍子：逐行错峰等于去猜我们没有的 DOM，猜错就完全不动。我们自己那页保留
+90 / 126 / 162 / 198ms 四步，并且被排除在通用规则之外，所以同一行不会动两遍。
+
 关闭更快也更简单：全屏 150ms、窗口 160ms，边淡出边往上走一点。宿主是同步卸载整块面板的，
 所以关闭动画演在「刚刚离开文档树」的那个节点上，演完再丢 —— 页面不会闪回来。
 
-不想要就在自己那页关掉**设置页开关动画**。系统开了「减少动效」时是直接跳过，不是变快。
+不想要就在自己那页关掉**设置页开关动画**。系统开了「减少动效」时是直接跳过，不是变快；
+这种情况下开关下面会多一行小字说明，免得「开着却没动」看起来像坏了。
 
 ## 我能配什么
 
@@ -199,7 +204,7 @@ index.js            host 半边：只为让 bundle 解析得到，不注入任�
 cordis.patch.yml    bundle patch
 locale/             分类名与那一页的中英文案
 screenshots/        上面那几个占位等着要的图
-test/settings-page.test.mjs   57 条断言，零依赖
+test/settings-page.test.mjs   65 条断言，零依赖
 ```
 
 ## 测试
@@ -207,7 +212,7 @@ test/settings-page.test.mjs   57 条断言，零依赖
 ```powershell
 node --check client.js
 node --check index.js
-node test/settings-page.test.mjs     # → PASS — 57 groups
+node test/settings-page.test.mjs     # → PASS — 65 groups
 ```
 
 测试用桩掉的 `window.__ModuleLoader__` 执行真的 `client.js`，然后对导出的字符串和

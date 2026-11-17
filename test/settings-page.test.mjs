@@ -1051,6 +1051,73 @@ function load(options = {}) {
     has(mod.CSS, 'html[data-bsp-motion="on"][data-bsp-fullscreen="off"] .bsp-page > *', 'window mode kills the stagger')
   })
 
+  check('panel motion: every settings section gets the same mount-gated beat', () => {
+    // The panel chrome was always global, but this rule used to be gated on the
+    // open phase — so only the host's first section ever animated. Switching to
+    // any other section (the host's or another plugin's) mounted fresh content
+    // with no motion. It now hangs off motion alone, one level deep, one beat.
+    const generic = 'html[data-bsp-motion="on"] div[data-shortcut-modal="settings"] [data-slot="settings.section"] > *:not(.bsp-page)'
+    has(mod.CSS, generic, 'generic section rule is mount-gated')
+    absent(mod.CSS, '[data-bsp-phase="open"] [data-slot="settings.section"]', 'no open-phase gate on section content')
+    has(mod.CSS, 'animation: bsp-card-in 260ms cubic-bezier(.22,1,.36,1) 90ms both', 'single 90ms beat')
+    absent(mod.CSS, '[data-slot="settings.section"] > *:nth-child', 'no per-row guess on foreign pages')
+  })
+
+  check('panel motion: both overrides neutralise the generic section rule', () => {
+    // Both override blocks still carried [data-bsp-phase] on this selector; with
+    // the rule un-gated they would have lied (stagger alive in a small window,
+    // still moving under reduce-motion).
+    const generic = 'html[data-bsp-motion="on"] div[data-shortcut-modal="settings"] [data-slot="settings.section"] > *:not(.bsp-page)'
+    const reduceBlock = mod.CSS.slice(mod.CSS.indexOf('@media (prefers-reduced-motion: reduce)'))
+    has(reduceBlock, generic, 'reduced motion covers the generic rule')
+    absent(reduceBlock, '[data-bsp-phase] [data-slot="settings.section"]', 'reduced override is not phase-gated')
+    has(mod.CSS, 'html[data-bsp-motion="on"][data-bsp-fullscreen="off"] div[data-shortcut-modal="settings"] [data-slot="settings.section"] > *', 'window mode covers the generic rule')
+    absent(mod.CSS, '[data-bsp-phase="open"] [data-slot="settings.section"]', 'window override is not phase-gated')
+  })
+
+  check('panel motion: our own page keeps its four-step stagger and is not doubled', () => {
+    // The generic rule excludes .bsp-page and our rows carry their own
+    // :nth-child table, so the page still runs 90/126/162/198 exactly once.
+    has(mod.CSS, 'html[data-bsp-motion="on"] div[data-shortcut-modal="settings"] [data-slot="settings.section"] > *:not(.bsp-page)', 'generic rule excludes our page')
+    for (const step of ['90ms', '126ms', '162ms', '198ms']) {
+      has(mod.CSS, `animation: bsp-card-in 260ms cubic-bezier(.22,1,.36,1) ${step} both`, `row step ${step}`)
+    }
+    has(mod.CSS, 'html[data-bsp-motion="on"] .bsp-page > *:nth-child(n+4)', 'row4 rule')
+    const rowRules = mod.CSS.match(/\.bsp-page > \*:nth-child\(/g) || []
+    equal(rowRules.length, 8, 'four row rules plus four reduced-motion twins, no duplicates')
+  })
+
+  check('panel motion: the reduced-motion hint explains a dead switch and the override stays gated', () => {
+    // The reduce block is gated on data-bsp-motion="on", so "switch on + system
+    // asks for reduced motion" means the animation is skipped while the switch
+    // still reads on. The row now says why, instead of leaving the user with
+    // "I turned it on and nothing happened".
+    const fresh = load()
+    const plain = fresh.mod.SettingsPage({ t: (key) => key })
+    const plainRow = plain.props.children.filter((node) => node && node.props && node.props.className === 'bsp-row')[2]
+    const plainNote = plainRow.props.children[0].props.children.find((child) => child && child.props && child.props['data-bsp-row-note'] !== undefined)
+    equal(plainNote, undefined, 'no note without a reduced-motion preference')
+
+    fresh.window.matchMedia = (query) => ({ matches: query === '(prefers-reduced-motion: reduce)', media: query })
+    const tree = fresh.mod.SettingsPage({ t: (key) => key })
+    const row = tree.props.children.filter((node) => node && node.props && node.props.className === 'bsp-row')[2]
+    const note = row.props.children[0].props.children.find((child) => child && child.props && child.props['data-bsp-row-note'] !== undefined)
+    truthy(note !== undefined, 'the note is rendered')
+    equal(note.props['data-bsp-row-note'], 'page.motion', 'attached to the motion row')
+    equal(note.props.children[0], 'page.motionReduced', 'text comes from the dictionary')
+    const box = row.props.children.find((child) => child && child.type === 'input')
+    equal(box.props.disabled, undefined, 'the switch stays usable')
+    truthy(typeof box.props.onChange === 'function', 'the switch can still be flipped')
+
+    const reduceStart = fresh.mod.CSS.indexOf('@media (prefers-reduced-motion: reduce)')
+    truthy(reduceStart > -1, 'the reduce block exists')
+    const selectors = fresh.mod.CSS.slice(reduceStart).split('\n').map((line) => line.trim()).filter((line) => line.startsWith('html['))
+    truthy(selectors.length >= 5, 'chrome and content are both covered')
+    for (const selector of selectors) {
+      equal(selector.slice(0, 'html[data-bsp-motion="on"]'.length), 'html[data-bsp-motion="on"]', 'reduce rule is gated on the switch: ' + selector)
+    }
+  })
+
   check('panel motion: off or reduced motion means zero animation', () => {
     const off = [
       { fullscreen: true, motion: false, reduceMotion: false },
