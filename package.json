@@ -1,6 +1,6 @@
 {
   "name": "dsh-better-setting-page",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": false,
   "description": "Full-screen settings page with a collapsible navigation rail for DeepSeek Harness, plus a small page holding the three switches (full screen, collapsed rail, and the panel motion).",
   "license": "MIT",
@@ -28,7 +28,7 @@
     "./client": "./client.js",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json",
-    "./icon": "./icon.svg"
+    "./icon": "./icon.png"
   },
   "files": [
     "index.js",
@@ -38,7 +38,7 @@
     "README.zh.md",
     "LICENSE",
     "locale",
-    "icon.svg",
+    "icon.png",
     "screenshots"
   ],
   "dsh": {
@@ -50,5 +50,5 @@
       "immediately": true
     }
   },
-  "icon": "./icon.svg"
+  "icon": "./icon.png"
 }

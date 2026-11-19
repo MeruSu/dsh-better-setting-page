@@ -8,6 +8,10 @@ Two version numbers exist in this project and they are not the same thing:
 - the stored settings `version` — moves only when the shape of the saved record
   changes. This release ships shape `1`.
 
+## 0.1.10 — 2026-11-19
+
+**Icon only: the plugin icon is now a PNG (meru family).**
+
 ## 0.1.9 — 2026-11-17
 
 **Packaging only: `engines.dsh`.** This release adds

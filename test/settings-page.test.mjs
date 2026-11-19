@@ -971,18 +971,20 @@ function load(options = {}) {
   const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8'))
 
   check('package.json declares the display metadata the host reads', () => {
-    equal(pkg.icon, './icon.svg', 'manifest icon')
+    equal(pkg.icon, './icon.png', 'manifest icon')
     truthy(pkg.exports, 'exports present')
-    equal(pkg.exports['./icon'], './icon.svg', 'exported icon')
+    equal(pkg.exports['./icon'], './icon.png', 'exported icon')
     truthy(pkg.exports['./locale/*.json'], 'exported locale glob')
   })
 
   check('the icon ships inside the npm package', () => {
-    truthy(pkg.files.includes('icon.svg'), 'files includes icon.svg')
+    truthy(pkg.files.includes('icon.png'), 'files includes icon.png')
     truthy(pkg.files.includes('locale'), 'files includes locale/')
-    const svg = readFileSync(join(here, '..', 'icon.svg'), 'utf8')
-    truthy(svg.startsWith('<svg'), 'icon.svg is an SVG')
-    truthy(Buffer.byteLength(svg) <= 256 * 1024, 'icon stays under the hosts 256 KiB cap')
+    const png = readFileSync(join(here, '..', 'icon.png'))
+    equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', 'icon.png is a PNG')
+    equal(png.readUInt32BE(16), 100, 'icon width is 100')
+    equal(png.readUInt32BE(20), 100, 'icon height is 100')
+    truthy(png.length <= 256 * 1024, 'icon stays under the hosts 256 KiB cap')
   })
 
   check('locale files carry a title and a description in both languages', () => {
